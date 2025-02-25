@@ -7,12 +7,14 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
+  build-and-test:
     runs-on: windows-latest
     
     steps:
     - uses: actions/checkout@v2
-    
+      with:
+        lfs: true
+        
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
@@ -21,7 +23,7 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        if exist requirements.txt pip install -r requirements.txt
+        pip install -r requirements.txt
     
     - name: Setup vcpkg
       uses: lukka/run-vcpkg@v7
@@ -30,7 +32,7 @@ jobs:
     
     - name: Configure CMake
       run: |
-        mkdir build
+        mkdir -p build
         cd build
         cmake .. -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
       
@@ -38,3 +40,34 @@ jobs:
       run: |
         cd build
         cmake --build . --config Release
+        
+    - name: Copy built module
+      run: |
+        if (Test-Path "build/bin/Release/voice_transcription_backend.pyd") {
+          Copy-Item "build/bin/Release/voice_transcription_backend.pyd" -Destination "src/"
+        } elseif (Test-Path "build/lib/Release/voice_transcription_backend.pyd") {
+          Copy-Item "build/lib/Release/voice_transcription_backend.pyd" -Destination "src/"
+        } else {
+          Write-Warning "Could not find built module. Check build output."
+          exit 1
+        }
+        
+    - name: Create mock model directory
+      run: |
+        mkdir -p models/vosk/mock-model
+        
+    - name: Run unit tests
+      run: |
+        python test_application.py
+        
+    - name: Archive build artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: voice-transcription
+        path: |
+          src/voice_transcription_backend.pyd
+          src/**/*.py
+          models/**
+          config/**
+          LICENSE
+          README.md
