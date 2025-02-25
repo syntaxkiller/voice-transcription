@@ -9,6 +9,8 @@
 #include <functional>
 #include <optional>
 #include <stdexcept>
+#include <atomic>
+#include <condition_variable>
 
 namespace voice_transcription {
 
@@ -56,6 +58,8 @@ public:
 struct AudioCallbackContext {
     std::queue<std::unique_ptr<AudioChunk>> audio_queue;
     std::mutex queue_mutex;
+	std::atomic<bool> stop_requested{false};
+    std::condition_variable queue_cv;
     int frames_per_buffer;
 };
 
@@ -92,6 +96,8 @@ public:
     // Static methods for device management
     static std::vector<AudioDevice> enumerate_devices();
     static bool check_device_compatibility(int device_id, int required_sample_rate);
+	
+	std::atomic<bool> is_transcribing_{false};
 
 private:
     // Private method to initialize PortAudio if needed

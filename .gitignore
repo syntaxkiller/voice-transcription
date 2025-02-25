@@ -1,0 +1,84 @@
+# Build directories
+build/
+_build/
+Debug/
+Release/
+x64/
+x86/
+Win32/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+install_manifest.txt
+
+# Downloaded or generated dependencies
+libs/portaudio/
+libs/vosk/
+libs/webrtc_vad/
+libs/googletest/
+libs/pybind11/
+models/vosk/mock-model/
+temp/
+
+# Vosk models
+# models/vosk/vosk-model-en-us-0.22/ is tracked with Git LFS
+
+# Compiled Python files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.pyd
+
+# Visual Studio files
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.vcproj
+*.vcproj.filters
+*.vcproj.user
+*.suo
+*.user
+*.userosscache
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+ipch/
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/c_cpp_properties.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Python virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Log files
+logs/
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+temp/
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
