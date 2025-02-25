@@ -1,0 +1,42 @@
+{
+  "audio": {
+    "default_device_id": -1,
+    "vad_aggressiveness": 2,
+    "hangover_timeout_ms": 300,
+    "sample_rate": 16000,
+    "frames_per_buffer": 320,
+    "noise_threshold": 0.05
+  },
+  "transcription": {
+    "engine": "vosk",
+    "model_path": "models/vosk/vosk-model-en-us-0.22",
+    "keypress_delay_ms": 20,
+    "keypress_rate_limit_cps": 100
+  },
+  "shortcut": {
+    "modifiers": ["Ctrl", "Shift"],
+    "key": "T"
+  },
+  "ui": {
+    "pause_on_active_window_change": false,
+    "confirmation_feedback": true
+  },
+  "output": {
+    "method": "simulated_keypresses",
+    "clipboard_output": false
+  },
+  "dictation_commands": {
+    "supported_commands": [
+      { "phrase": "period", "action": "." },
+      { "phrase": "comma", "action": "," },
+      { "phrase": "question mark", "action": "?" },
+      { "phrase": "exclamation point", "action": "!" },
+      { "phrase": "new line", "action": "{ENTER}" },
+      { "phrase": "new paragraph", "action": "{ENTER}{ENTER}" },
+      { "phrase": "space", "action": " " },
+      { "phrase": "control enter", "action": "{CTRL+ENTER}" },
+      { "phrase": "all caps", "action": "{CAPSLOCK}" },
+      { "phrase": "caps lock", "action": "{CAPSLOCK}" }
+    ]
+  }
+}
