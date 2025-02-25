@@ -1,7 +1,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/functional.h>
-#include <pybind11/stl_bind.h>
+#include <pybind11/numpy.h>
 
 #include "audio_stream.h"
 #include "vosk_transcription_engine.h"
@@ -33,10 +33,10 @@ PYBIND11_MODULE(voice_transcription_backend, m) {
         .def("size", &AudioChunk::size)
         .def("data", [](const AudioChunk& chunk) {
             return py::array_t<float>(
-                {chunk.size()},                 // Shape
-                {sizeof(float)},                // Strides
-                chunk.data(),                   // Data pointer
-                py::capsule(chunk.data(), [](void*) {})  // Dummy capsule
+                {chunk.size()},
+                {sizeof(float)},
+                chunk.data(),
+                py::capsule(chunk.data(), [](void*) {})
             );
         });
     

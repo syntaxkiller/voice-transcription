@@ -53,7 +53,7 @@ if(EXISTS "${PORTAUDIO_INCLUDE_DIR}/portaudio.h")
     set(PORTAUDIO_HEADER_FOUND TRUE)
     message(STATUS "Found PortAudio header: ${PORTAUDIO_INCLUDE_DIR}/portaudio.h")
 else()
-    message(FATAL_ERROR "PortAudio header not found. Run improved_setup.bat first.")
+    message(FATAL_ERROR "PortAudio header not found. Run setup.bat first.")
 endif()
 
 # Check for library if not using mock
@@ -89,13 +89,14 @@ if(EXISTS "${VOSK_INCLUDE_DIR}/vosk_api.h")
     set(VOSK_HEADER_FOUND TRUE)
     message(STATUS "Found Vosk header: ${VOSK_INCLUDE_DIR}/vosk_api.h")
 else()
-    message(FATAL_ERROR "Vosk header not found. Run improved_setup.bat first.")
+    message(FATAL_ERROR "Vosk header not found. Run setup.bat first.")
 endif()
 
 # Look for Vosk library
 find_library(VOSK_LIBRARY
     NAMES
         vosk
+        libvosk
     PATHS
         "${VOSK_DIR}/lib"
     NO_DEFAULT_PATH
@@ -116,7 +117,7 @@ if(EXISTS "${WEBRTC_VAD_INCLUDE_DIR}/webrtc_vad.h")
     set(WEBRTC_VAD_FOUND TRUE)
     message(STATUS "Using WebRTC VAD mock implementation")
 else()
-    message(FATAL_ERROR "WebRTC VAD header not found. Run improved_setup.bat first.")
+    message(FATAL_ERROR "WebRTC VAD header not found. Run setup.bat first.")
 endif()
 
 # Set include directories
@@ -126,6 +127,11 @@ include_directories(
     ${VOSK_INCLUDE_DIR}
     ${WEBRTC_VAD_INCLUDE_DIR}
 )
+
+# Make sure necessary source files exist
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/bindings/pybind_wrapper.cpp")
+    message(FATAL_ERROR "Missing source file: src/bindings/pybind_wrapper.cpp. Run setup.bat first.")
+endif()
 
 # Backend source files
 set(BACKEND_SOURCES
@@ -138,12 +144,20 @@ set(BACKEND_SOURCES
 
 # Add portaudio_mock.cpp if using mock implementation
 if(USING_PORTAUDIO_MOCK)
-    list(APPEND BACKEND_SOURCES src/backend/portaudio_mock.cpp)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/portaudio_mock.cpp")
+        list(APPEND BACKEND_SOURCES src/backend/portaudio_mock.cpp)
+    else() 
+        message(FATAL_ERROR "Using PortAudio mock but src/backend/portaudio_mock.cpp not found. Run setup.bat first.")
+    endif()
 endif()
 
 # Add vosk_api.cpp only if using mock implementation
 if(NOT VOSK_FOUND)
-    list(APPEND BACKEND_SOURCES src/backend/vosk_api.cpp)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/vosk_api.cpp")
+        list(APPEND BACKEND_SOURCES src/backend/vosk_api.cpp)
+    else()
+        message(FATAL_ERROR "Vosk library not found and mock implementation (src/backend/vosk_api.cpp) is missing. Run setup.bat first.")
+    endif()
 endif()
 
 # Create pybind11 module

@@ -1,12 +1,13 @@
 #pragma once
 
+// Vosk API declarations
+// This is a simplified version of the Vosk API for our mock implementation
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// Mock header for Vosk API
-// This provides the same interface as the real Vosk API
-
+// Opaque model and recognizer structures
 typedef struct VoskModel VoskModel;
 typedef struct VoskRecognizer VoskRecognizer;
 
@@ -22,6 +23,7 @@ void vosk_recognizer_set_words(VoskRecognizer *recognizer, int words);
 int vosk_recognizer_accept_waveform(VoskRecognizer *recognizer, const char *data, int length);
 const char *vosk_recognizer_result(VoskRecognizer *recognizer);
 const char *vosk_recognizer_partial_result(VoskRecognizer *recognizer);
+const char *vosk_recognizer_final_result(VoskRecognizer *recognizer);
 void vosk_recognizer_reset(VoskRecognizer *recognizer);
 
 #ifdef __cplusplus
