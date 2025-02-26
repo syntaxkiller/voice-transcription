@@ -11,6 +11,22 @@
 namespace py = pybind11;
 using namespace voice_transcription;
 
+// Custom wrapper for the transcribe method to handle unique_ptr
+TranscriptionResult transcribe_wrapper(VoskTranscriber& self, AudioChunk& chunk) {
+    // Create a copy of the chunk and move it into a unique_ptr
+    auto chunk_copy = std::make_unique<AudioChunk>(chunk.size());
+    std::memcpy(chunk_copy->data(), chunk.data(), chunk.size() * sizeof(float));
+    return self.transcribe(std::move(chunk_copy));
+}
+
+// Custom wrapper for the transcribe_with_vad method
+TranscriptionResult transcribe_with_vad_wrapper(VoskTranscriber& self, AudioChunk& chunk, bool is_speech) {
+    // Create a copy of the chunk and move it into a unique_ptr
+    auto chunk_copy = std::make_unique<AudioChunk>(chunk.size());
+    std::memcpy(chunk_copy->data(), chunk.data(), chunk.size() * sizeof(float));
+    return self.transcribe_with_vad(std::move(chunk_copy), is_speech);
+}
+
 PYBIND11_MODULE(voice_transcription_backend, m) {
     m.doc() = "Voice Transcription Backend Module";
     
@@ -72,11 +88,11 @@ PYBIND11_MODULE(voice_transcription_backend, m) {
         .def("set_aggressiveness", &VADHandler::set_aggressiveness)
         .def("get_aggressiveness", &VADHandler::get_aggressiveness);
     
-    // VoskTranscriber class
+    // VoskTranscriber class - use wrappers to handle unique_ptr
     py::class_<VoskTranscriber>(m, "VoskTranscriber")
         .def(py::init<const std::string&, float>())
-        .def("transcribe", &VoskTranscriber::transcribe)
-        .def("transcribe_with_vad", &VoskTranscriber::transcribe_with_vad)
+        .def("transcribe", &transcribe_wrapper)
+        .def("transcribe_with_vad", &transcribe_with_vad_wrapper)
         .def("reset", &VoskTranscriber::reset)
         .def("is_model_loaded", &VoskTranscriber::is_model_loaded)
         .def("get_last_error", &VoskTranscriber::get_last_error);

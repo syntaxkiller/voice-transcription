@@ -23,7 +23,8 @@ static void setup_mock_devices() {
     }
     
     // Seed random number generator
-    rng.seed(static_cast<unsigned int>(std::time(nullptr)));
+    unsigned int seed = static_cast<unsigned int>(std::time(nullptr));
+    rng.seed(seed);
     
     // Create a few mock devices
     num_devices = 3;
@@ -328,7 +329,8 @@ PaError Pa_IsStreamStopped(PaStream* stream) {
     return !mock_stream->is_active ? 1 : 0;
 }
 
-PaError Pa_GetStreamReadAvailable(PaStream* stream) {
+// Changed return type to match header: long instead of PaError
+long Pa_GetStreamReadAvailable(PaStream* stream) {
     if (!pa_initialized) {
         return paNotInitialized;
     }
@@ -341,7 +343,8 @@ PaError Pa_GetStreamReadAvailable(PaStream* stream) {
     return 1024;
 }
 
-PaError Pa_GetStreamWriteAvailable(PaStream* stream) {
+// Changed return type to match header: long instead of PaError
+long Pa_GetStreamWriteAvailable(PaStream* stream) {
     if (!pa_initialized) {
         return paNotInitialized;
     }
@@ -382,4 +385,10 @@ const char* Pa_GetErrorText(PaError errorCode) {
         case paBadStreamPtr: return "Bad stream pointer";
         default: return "Unknown error";
     }
+}
+
+// WebRtcVad_Create implementation
+void* WebRtcVad_Create() {
+    // Return a pointer to an int instead of void
+    return new int(1);
 }

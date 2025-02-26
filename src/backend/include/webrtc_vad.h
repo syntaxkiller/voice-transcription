@@ -1,4 +1,5 @@
-#pragma once
+#ifndef WEBRTC_VAD_H
+#define WEBRTC_VAD_H
 
 #include <cstdint>
 #include <cstddef>
@@ -13,11 +14,12 @@ extern "C" {
 // Create a new VAD instance
 void* WebRtcVad_Create();
 
-// Free a VAD instance
-void WebRtcVad_Free(void* handle);
-
 // Initialize a VAD instance
 int WebRtcVad_Init(void* handle);
+
+// Free a VAD instance
+// Changed return type from int to void
+void WebRtcVad_Free(void* handle);
 
 // Set the aggressiveness mode
 // 0: Least aggressive, more false positives
@@ -31,3 +33,5 @@ int WebRtcVad_Process(void* handle, int fs, const int16_t* audio_frame, size_t f
 #ifdef __cplusplus
 }
 #endif
+
+#endif // WEBRTC_VAD_H
