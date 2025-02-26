@@ -36,14 +36,6 @@ else()
     endif()
 endif()
 
-# Check for PortAudio mock implementation file
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/portaudio_mock.cpp")
-    set(USING_PORTAUDIO_MOCK TRUE)
-    message(STATUS "Using PortAudio mock implementation")
-else()
-    set(USING_PORTAUDIO_MOCK FALSE)
-endif()
-
 # Find PortAudio - Look for different possible library names
 set(PORTAUDIO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/portaudio")
 set(PORTAUDIO_INCLUDE_DIR "${PORTAUDIO_DIR}/include")
@@ -142,24 +134,6 @@ set(BACKEND_SOURCES
     src/backend/webrtc_vad.cpp
 )
 
-# Add portaudio_mock.cpp if using mock implementation
-if(USING_PORTAUDIO_MOCK)
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/portaudio_mock.cpp")
-        list(APPEND BACKEND_SOURCES src/backend/portaudio_mock.cpp)
-    else() 
-        message(FATAL_ERROR "Using PortAudio mock but src/backend/portaudio_mock.cpp not found. Run setup.bat first.")
-    endif()
-endif()
-
-# Add vosk_api.cpp only if using mock implementation
-if(NOT VOSK_FOUND)
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/vosk_api.cpp")
-        list(APPEND BACKEND_SOURCES src/backend/vosk_api.cpp)
-    else()
-        message(FATAL_ERROR "Vosk library not found and mock implementation (src/backend/vosk_api.cpp) is missing. Run setup.bat first.")
-    endif()
-endif()
-
 # Create pybind11 module
 pybind11_add_module(voice_transcription_backend
     src/bindings/pybind_wrapper.cpp
@@ -191,14 +165,6 @@ if(WIN32)
         UNICODE              # Use Unicode Windows API
         _UNICODE
     )
-endif()
-
-if(USING_PORTAUDIO_MOCK)
-    target_compile_definitions(voice_transcription_backend PRIVATE USE_PORTAUDIO_MOCK)
-endif()
-
-if(NOT VOSK_FOUND)
-    target_compile_definitions(voice_transcription_backend PRIVATE USE_VOSK_MOCK)
 endif()
 
 # Copy the compiled module to the Python package directory
