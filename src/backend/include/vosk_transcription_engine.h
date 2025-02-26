@@ -1,4 +1,5 @@
-#pragma once
+#ifndef VOSK_TRANSCRIPTION_ENGINE_H
+#define VOSK_TRANSCRIPTION_ENGINE_H
 
 #include "audio_stream.h"
 #include "webrtc_vad.h"
@@ -84,3 +85,5 @@ private:
 };
 
 } // namespace voice_transcription
+
+#endif // VOSK_TRANSCRIPTION_ENGINE_H

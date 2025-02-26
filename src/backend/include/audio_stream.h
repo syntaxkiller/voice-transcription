@@ -1,4 +1,5 @@
-#pragma once
+#ifndef AUDIO_STREAM_H
+#define AUDIO_STREAM_H
 
 #include <memory>
 #include <vector>
@@ -137,3 +138,5 @@ private:
 };
 
 } // namespace voice_transcription
+
+#endif // AUDIO_STREAM_H

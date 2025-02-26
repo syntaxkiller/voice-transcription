@@ -38,6 +38,7 @@ typedef struct PaStreamParameters {
     void *hostApiSpecificStreamInfo;
 } PaStreamParameters;
 
+// Constants for PortAudio
 #define paNoError 0
 #define paNotInitialized -10000
 #define paUnanticipatedHostError -9999
@@ -51,6 +52,28 @@ typedef struct PaStreamParameters {
 #define paNoDevice -1
 #define paFormatIsSupported 0
 
+// Stream callback return codes
+#define paContinue 0
+#define paComplete 1
+#define paAbort 2
+
+// Sample formats
+#define paFloat32 1
+#define paInt32 2
+#define paInt24 4
+#define paInt16 8
+#define paInt8 16
+#define paUInt8 32
+#define paCustomFormat 65536
+
+// Stream flags
+#define paClipOff 1
+#define paDitherOff 2
+#define paNeverDropInput 4
+#define paPrimeOutputBuffersUsingStreamCallback 8
+#define paPlatformSpecificFlags 0xFFFF0000
+
+// Function declarations
 PaError Pa_Initialize(void);
 PaError Pa_Terminate(void);
 int Pa_GetDeviceCount(void);
@@ -66,11 +89,8 @@ PaError Pa_StopStream(PaStream *stream);
 PaError Pa_IsStreamActive(PaStream *stream);
 PaError Pa_IsStreamStopped(PaStream *stream);
 PaTime Pa_GetStreamTime(PaStream *stream);
-
-// Changed return types to match implementation
 long Pa_GetStreamReadAvailable(PaStream *stream);
 long Pa_GetStreamWriteAvailable(PaStream *stream); 
-
 const char *Pa_GetErrorText(PaError errorCode);
 
 #ifdef __cplusplus

@@ -173,3 +173,177 @@ bool ControlledAudioStream::start() {
         return false;
     }
 }
+
+void ControlledAudioStream::stop() {
+    if (stream_) {
+        if (Pa_IsStreamActive(stream_) == 1) {
+            Pa_StopStream(stream_);
+        }
+        Pa_CloseStream(stream_);
+        stream_ = nullptr;
+    }
+}
+
+void ControlledAudioStream::pause() {
+    is_paused_ = true;
+}
+
+void ControlledAudioStream::resume() {
+    is_paused_ = false;
+}
+
+bool ControlledAudioStream::is_active() const {
+    return stream_ && Pa_IsStreamActive(stream_) == 1;
+}
+
+std::optional<AudioChunk> ControlledAudioStream::get_next_chunk(int timeout_ms) {
+    if (!is_active() || is_paused_) {
+        return std::nullopt;
+    }
+    
+    // Mock implementation - return a chunk of silence
+    auto chunk = std::make_optional<AudioChunk>(frames_per_buffer_);
+    
+    // Simulate processing delay
+    if (timeout_ms > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(timeout_ms));
+    }
+    
+    return chunk;
+}
+
+void ControlledAudioStream::ensure_portaudio_initialized() {
+    if (!portaudio_initialized_) {
+        PaError err = Pa_Initialize();
+        if (err != paNoError) {
+            throw AudioStreamException(std::string("Failed to initialize PortAudio: ") + Pa_GetErrorText(err));
+        }
+        portaudio_initialized_ = true;
+    }
+}
+
+std::vector<AudioDevice> ControlledAudioStream::enumerate_devices() {
+    // Make sure PortAudio is initialized
+    ensure_portaudio_initialized();
+    
+    std::vector<AudioDevice> devices;
+    int numDevices = Pa_GetDeviceCount();
+    
+    if (numDevices < 0) {
+        // Error occurred
+        return devices;
+    }
+    
+    // Default input device
+    int defaultInputDevice = Pa_GetDefaultInputDevice();
+    
+    // Iterate through all devices
+    for (int i = 0; i < numDevices; i++) {
+        const PaDeviceInfo* deviceInfo = Pa_GetDeviceInfo(i);
+        
+        if (deviceInfo && deviceInfo->maxInputChannels > 0) {
+            // This device has input channels, add it to the list
+            AudioDevice device;
+            device.id = i;
+            device.raw_name = deviceInfo->name;
+            
+            // Create a more user-friendly label
+            const PaHostApiInfo* hostInfo = Pa_GetHostApiInfo(deviceInfo->hostApi);
+            std::string hostName = hostInfo ? hostInfo->name : "Unknown";
+            
+            device.label = deviceInfo->name;
+            
+            // Check if it's the default device
+            device.is_default = (i == defaultInputDevice);
+            
+            // Add some common sample rates to check
+            const int sampleRates[] = { 8000, 16000, 22050, 32000, 44100, 48000, 96000 };
+            
+            for (int rate : sampleRates) {
+                // Check if the device supports this sample rate
+                PaStreamParameters params;
+                params.device = i;
+                params.channelCount = 1;
+                params.sampleFormat = paFloat32;
+                params.suggestedLatency = deviceInfo->defaultLowInputLatency;
+                params.hostApiSpecificStreamInfo = nullptr;
+                
+                PaError err = Pa_IsFormatSupported(&params, nullptr, rate);
+                if (err == paFormatIsSupported) {
+                    device.supported_sample_rates.push_back(rate);
+                }
+            }
+            
+            devices.push_back(device);
+        }
+    }
+    
+    return devices;
+}
+
+bool ControlledAudioStream::check_device_compatibility(int device_id, int sample_rate) {
+    // Make sure PortAudio is initialized
+    ensure_portaudio_initialized();
+    
+    if (device_id < 0 || device_id >= Pa_GetDeviceCount()) {
+        return false;
+    }
+    
+    const PaDeviceInfo* deviceInfo = Pa_GetDeviceInfo(device_id);
+    if (!deviceInfo || deviceInfo->maxInputChannels <= 0) {
+        return false;
+    }
+    
+    // Check if the device supports the required sample rate
+    PaStreamParameters params;
+    params.device = device_id;
+    params.channelCount = 1;
+    params.sampleFormat = paFloat32;
+    params.suggestedLatency = deviceInfo->defaultLowInputLatency;
+    params.hostApiSpecificStreamInfo = nullptr;
+    
+    PaError err = Pa_IsFormatSupported(&params, nullptr, sample_rate);
+    return (err == paFormatIsSupported);
+}
+
+int ControlledAudioStream::audio_callback(
+    const void* input_buffer,
+    void* output_buffer,
+    unsigned long frames_per_buffer,
+    const PaStreamCallbackTimeInfo* time_info,
+    PaStreamCallbackFlags status_flags,
+    void* user_data
+) {
+    // Cast the user data to our context type
+    AudioCallbackContext* context = static_cast<AudioCallbackContext*>(user_data);
+    
+    if (!context || context->is_paused) {
+        return paContinue;
+    }
+    
+    // Lock the buffer mutex
+    std::lock_guard<std::mutex> lock(context->buffer_mutex);
+    
+    // Get the input buffer
+    const float* in = static_cast<const float*>(input_buffer);
+    
+    if (in) {
+        // Calculate how much space we need
+        size_t numSamples = frames_per_buffer;
+        
+        // Make sure the buffer is big enough
+        if (context->buffer.size() < context->buffer_pos + numSamples) {
+            context->buffer.resize(context->buffer_pos + numSamples);
+        }
+        
+        // Copy the data
+        std::memcpy(context->buffer.data() + context->buffer_pos, in, numSamples * sizeof(float));
+        
+        // Update buffer position
+        context->buffer_pos += numSamples;
+    }
+    
+    return paContinue;
+}
+
+} // namespace voice_transcription

@@ -1,7 +1,5 @@
-#pragma once
-
-// Vosk API declarations
-// This is a simplified version of the Vosk API for our mock implementation
+#ifndef VOSK_API_H
+#define VOSK_API_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,3 +27,5 @@ void vosk_recognizer_reset(VoskRecognizer *recognizer);
 #ifdef __cplusplus
 }
 #endif
+
+#endif // VOSK_API_H
