@@ -222,7 +222,7 @@ if(BUILD_TESTS)
         )
     endif()
     
-    # Create test executable
+    # Create test executable with the appropriate sources
     add_executable(audio_tests 
         tests/audio_stream_test.cpp
         src/backend/audio_stream.cpp 
