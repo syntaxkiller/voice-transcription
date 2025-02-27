@@ -2,199 +2,283 @@
 
 A real-time voice-to-text transcription tool that works entirely offline for Windows, focusing on privacy, low-latency, and reliability.
 
-## Project Status: Active Development
-
-⚠️ **Note:** This project is currently in active development. The core architecture is in place, and the build system is now working correctly. We've successfully fixed the CMake configuration issues that were previously blocking progress.
-
-**Current Focus:** 
-- Implementing and testing the core audio processing pipeline
-- Setting up basic C++/Python integration tests
-- Developing the device enumeration and audio streaming functionality
+![Status: Active Development](https://img.shields.io/badge/Status-Active%20Development-blue)
 
 ## Key Features
 
-- **Privacy-focused:** Works completely offline with no cloud dependencies
-- **Keyboard shortcut toggle:** Quickly start/stop transcription using a customizable hotkey
-- **Voice Activity Detection:** Efficiently processes speech while ignoring silence
-- **Dictation commands:** Support for punctuation and formatting commands (e.g., "period", "new line")
-- **Multiple output methods:** Choose between simulated keypresses or clipboard
-- **User-friendly interface:** Clean GUI with status indicators and device selection
-- **Robust error handling:** Graceful fallbacks and clear error messages
+- **🔒 Complete Privacy:** Works entirely offline with no cloud dependencies
+- **⌨️ Keyboard Shortcut Toggle:** Start/stop transcription with a customizable hotkey (default: Ctrl+Shift+T)
+- **🗣️ Smart Speech Detection:** Automatically detects when you're speaking using Voice Activity Detection
+- **🔤 Dictation Commands:** Use commands like "period", "new line", "question mark" for punctuation and formatting
+- **✍️ Flexible Output:** Choose between simulated keypresses or clipboard output
+- **🪟 User-Friendly Interface:** Clean GUI with device selection and status indicators
+- **🛡️ Robust Error Handling:** Graceful recovery from issues like device disconnections
 
-## Dependencies
+## Screenshots
 
-### Required Software
+*(Coming soon: Screenshots of application in action)*
 
-- Python 3.8+ – For running the application GUI
-- Visual Studio 2019/2022 – With C++ workload for building the C++ backend
-- CMake 3.14+ – For building the C++ components
-- Git – For fetching dependencies
+## Quick Start Guide
 
-### Libraries
+### Installation
 
-#### Python Dependencies
+1. **Download the latest release**
+   - Download the latest release from the [Releases](https://github.com/yourusername/voice-transcription/releases) page
+   - Or clone this repository to build from source
 
-- PyQt5 – GUI framework
-- pybind11 – C++/Python interoperability
-- pytest – Testing framework
-- colorlog – Enhanced logging
-
-#### C++ Dependencies
-
-- PortAudio – Audio capture
-- Vosk – Speech recognition
-- WebRTC VAD – Voice activity detection
-- RapidJSON – JSON parsing for transcription results
-- pybind11 – C++/Python binding
-- GoogleTest – C++ testing framework
-
-## Setup Instructions
-
-### Quick Setup
-
-1. **Clone this repository:**
-
-       git clone https://github.com/yourusername/voice-transcription.git
-       cd voice-transcription
-
-2. **Run the setup script** (this will install necessary dependencies and build the project):
-
-       setup.bat
-
-   The setup script includes robust error handling with fallback mechanisms that will:
-   
-   - Install all required Python dependencies
-   - Set up PortAudio with multiple fallback methods
+2. **Run the setup script**
+   ```
+   setup.bat
+   ```
+   This script will:
+   - Install required Python dependencies
+   - Set up PortAudio for audio capture
+   - Configure the build environment
    - Build the C++ backend components
-   - Properly configure the environment for development
 
-3. **Launch the application:**
+3. **Launch the application**
+   ```
+   python src/gui/main_window.py
+   ```
 
-       python src/gui/main_window.py
+### Basic Usage
 
-## Troubleshooting Common Build Issues
+1. **Select your microphone** from the device dropdown
+2. **Set your preferred hotkey** using the "Change Shortcut" button (default is Ctrl+Shift+T)
+3. **Press your hotkey** or click "Start Transcription" to begin transcribing
+4. **Speak naturally** and watch as your speech is converted to text in your active application
+5. **Press your hotkey again** to stop transcription
 
-~~1. **Target definition order issue:**~~
-   - ~~Error message: `No TARGET 'voice_transcription_backend' has been created in this directory`~~
-   - ~~Fix: The project maintainers are working on fixing this issue in the CMakeLists.txt file~~
-   - **FIXED**: This issue has been resolved in the latest version of the CMakeLists.txt file.
+### Dictation Commands
 
-2. **PortAudio linking problems:**
-   - Error message: `Could not find PortAudio library`
-   - Potential fix: Manually copy the correct version of PortAudio library (portaudio.lib or portaudio_x64.lib) to the libs/portaudio/lib directory
+Use these spoken commands to add punctuation and formatting:
 
-3. **Python binding issues:**
-   - Error message: `ImportError: No module named 'voice_transcription_backend'`
-   - Fix: Ensure the build process completed successfully and the .pyd file was copied to the src directory
+| Say this... | To get this... |
+|-------------|----------------|
+| "period" | . |
+| "comma" | , |
+| "question mark" | ? |
+| "exclamation point" | ! |
+| "new line" | (Enter key) |
+| "new paragraph" | (Double Enter) |
+| "space" | (Space) |
+| "control enter" | (Ctrl+Enter) |
+| "all caps" | (Caps Lock on) |
+| "caps lock" | (Caps Lock off) |
 
-4. **RapidJSON C++17 warnings:**
-   - Warning: `std::iterator class template is deprecated in C++17`
-   - Fix: These are non-critical warnings. If desired, you can add `_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING` to the target's compile definitions.
+## Troubleshooting
+
+### Common Issues
+
+#### Application won't start
+- Check that you've run `setup.bat` successfully
+- Verify Python 3.8+ is installed and in your PATH
+- Make sure all dependencies are installed (`pip install -r requirements.txt`)
+
+#### No microphones showing
+- Check that your microphone is properly connected
+- Verify that Windows recognizes your microphone
+- Some microphones may not support the required 16000 Hz sample rate
+
+#### Transcription not working
+- Ensure your microphone is selected in the dropdown
+- Check that your microphone is not being used by another application
+- Verify that you're in a reasonably quiet environment
+- Try adjusting your microphone volume in Windows settings
+
+#### Text not appearing in applications
+- Make sure the target application has focus when transcribing
+- Try using clipboard output instead (in Options)
+- Some applications may block simulated keypresses for security reasons
+
+### Error Messages
+
+| Error | Solution |
+|-------|----------|
+| "Audio device disconnected" | Reconnect your microphone or select a different one |
+| "Failed to load model" | Check that the Vosk model files are in the correct location |
+| "Failed to register hotkey" | Try a different keyboard shortcut |
+| "Output error" | Check if the target application is still active |
+
+## System Requirements
+
+- **Operating System:** Windows 10/11
+- **Processor:** Any modern x86_64 CPU
+- **Memory:** Minimum 4GB RAM (8GB recommended)
+- **Disk Space:** 500MB for application + models
+- **Audio:** Working microphone that supports 16000 Hz sampling
+- **Prerequisites:** 
+  - Python 3.8 or later
+  - Visual Studio 2019/2022 with C++ workload (for building from source)
+  - CMake 3.14 or later (for building from source)
+
+## Building from Source
+
+### Complete Build
+
+For a full build from source:
+
+1. **Install prerequisites:**
+   - Python 3.8+
+   - Visual Studio 2019/2022 with C++ workload
+   - CMake 3.14+
+   - Git
+
+2. **Clone the repository:**
+   ```
+   git clone https://github.com/yourusername/voice-transcription.git
+   cd voice-transcription
+   ```
+
+3. **Run the setup script:**
+   ```
+   setup.bat
+   ```
+
+4. **Build the project:**
+   ```
+   cd build
+   cmake --build . --config Release
+   ```
+
+5. **Run the application:**
+   ```
+   python src/gui/main_window.py
+   ```
 
 ### Development Build
 
-For developers working on the codebase:
+For active development:
 
-1. **Manual fix for CMake issues:**
-   - Open CMakeLists.txt and ensure the target definition (`pybind11_add_module`) appears before any references to the target
-   - Move all `target_compile_definitions`, `target_link_libraries`, and `add_custom_command` calls after the target definition
-   - Re-run CMake configuration and build
+1. **Configure with CMake in Debug mode:**
+   ```
+   cd build
+   cmake .. -DCMAKE_BUILD_TYPE=Debug
+   ```
 
-2. **Testing the C++/Python bridge:**
-   - Create a simple test script in Python that imports the voice_transcription_backend module
-   - Call a basic function to verify the binding works
-   - Check for any import or runtime errors
+2. **Build the project:**
+   ```
+   cmake --build . --config Debug
+   ```
 
-## Development Roadmap
+3. **Run with the Python debugger:**
+   ```
+   python -m pdb src/gui/main_window.py
+   ```
 
-### Current Focus (MVP Components)
-- Fix CMake build configuration issues
-- Implement and test basic C++/Python integration
-- Develop core audio pipeline (device enumeration, streaming, VAD, transcription)
-- Create minimal end-to-end processing flow
-- Implement basic shortcut functionality
-- Connect backend to simple GUI
+## Configuration
 
-### Future Enhancements
-- Enhance UI with better visual feedback
-- Improve error handling and recovery mechanisms
-- Add customizable dictation commands
-- Optimize performance for lower latency
-- Add support for different transcription models
+The application can be configured by editing `src/config/settings.json`:
 
-## Project Structure
+```json
+{
+  "audio": {
+    "default_device_id": -1,
+    "vad_aggressiveness": 2,
+    "hangover_timeout_ms": 300,
+    "sample_rate": 16000,
+    "frames_per_buffer": 320,
+    "noise_threshold": 0.05
+  },
+  "transcription": {
+    "engine": "vosk",
+    "model_path": "models/vosk/vosk-model-en-us-0.22",
+    "keypress_delay_ms": 20,
+    "keypress_rate_limit_cps": 100
+  },
+  "shortcut": {
+    "modifiers": ["Ctrl", "Shift"],
+    "key": "T"
+  },
+  "ui": {
+    "pause_on_active_window_change": false,
+    "confirmation_feedback": true
+  },
+  "output": {
+    "method": "simulated_keypresses",
+    "clipboard_output": false
+  },
+  "dictation_commands": {
+    "supported_commands": [
+      { "phrase": "period", "action": "." },
+      { "phrase": "comma", "action": "," },
+      { "phrase": "question mark", "action": "?" },
+      { "phrase": "exclamation point", "action": "!" },
+      { "phrase": "new line", "action": "{ENTER}" },
+      { "phrase": "new paragraph", "action": "{ENTER}{ENTER}" },
+      { "phrase": "space", "action": " " },
+      { "phrase": "control enter", "action": "{CTRL+ENTER}" },
+      { "phrase": "all caps", "action": "{CAPSLOCK}" },
+      { "phrase": "caps lock", "action": "{CAPSLOCK}" }
+    ]
+  }
+}
+```
 
-Copy/voice-transcription/  
-├── src/  (Source code)  
-│   ├── gui/  (Python GUI components)  
-│   ├── backend/  (C++ backend)  
-│   │   ├── include/  (Header files)  
-│   │   └── ...  (Implementation files)  
-│   ├── bindings/  (pybind11 bindings)  
-│   ├── utils/  (Utility modules)  
-│   └── config/  (Configuration files)  
-├── models/  (Speech recognition models)  
-│   └── vosk/  (Vosk speech models)  
-├── libs/  (External libraries)  
-├── tests/  (Unit tests)  
-├── build/  (Build output)  
-├── CMakeLists.txt  (C++ build configuration)  
-├── requirements.txt  (Python dependencies)  
-└── setup.bat  (Setup script with robust error handling)
+## Project Status
 
-## Using the Application
+### Current Development Stage
 
-- Select an audio input device from the dropdown menu.
-- Set your preferred hotkey with the "Change Shortcut" button.
-- Start transcription by clicking the button or using your shortcut.
-- Speak into your microphone and watch as your speech is converted to text.
-- Use dictation commands like "period", "new line", etc. for punctuation and formatting.
+The application is currently in active development with usable core functionality. The basic architecture is in place with a working Python GUI and C++ backend. Key components like audio capture, voice activity detection, transcription, and text output are functional.
 
-## Dictation Commands
+**Working Features:**
+- Audio device enumeration and selection
+- Keyboard shortcut capture and registration
+- Voice activity detection
+- Basic speech recognition with Vosk
+- Text output via simulated keypresses or clipboard
+- Dictation commands for punctuation and formatting
 
-- "period" → .
-- "comma" → ,
-- "question mark" → ?
-- "exclamation point" → !
-- "new line" → (simulates Enter key)
-- "new paragraph" → (simulates double Enter)
-- "space" → (inserts a space)
-- "control enter" → (simulates Ctrl+Enter)
-- "all caps" → (toggles Caps Lock on)
-- "caps lock" → (toggles Caps Lock off)
+**Under Development:**
+- Improving transcription accuracy and latency
+- Enhancing the user interface
+- Adding more robust error handling
+- Implementing audio level visualization
+- Creating comprehensive user documentation
 
-## Development Notes
+### Recent Progress
 
-### Current State
+- Fixed CMake configuration issues for proper target definition
+- Implemented robust error handling with recovery mechanisms
+- Added RapidJSON for better parsing of transcription results
+- Enhanced setup process with multiple fallback methods for dependencies
 
-- The basic architecture is in place with a working Python GUI and C++ backend
-- A functional Vosk transcription engine has been implemented
-- Core functionality (audio capture, VAD, transcription, output) is implemented
-- JSON parsing with RapidJSON for transcription results is implemented
-- Robust setup process with improved error handling for dependencies
-- Working PortAudio integration with multiple fallback methods for setup
+## Contributing
 
-### Next Steps
+Contributions are welcome! Here's how you can help:
 
-- Comprehensive testing of the Vosk transcription implementation
-- Enhancing the user interface for better feedback on transcription quality
-- Implementing configurable transcription parameters
-- Optimizing performance for lower latency
+1. **Report issues** by creating an issue in the GitHub repository
+2. **Suggest features** that would make the application more useful
+3. **Submit pull requests** with bug fixes or new features
 
-## Building for Development
+Please see [CONTRIBUTING.md](CONTRIBUTING.md) for more details on the contribution process.
 
-### Debug Build
+## Frequently Asked Questions
 
-       cd build
-       cmake ..
-       cmake --build . --config Debug
+**Q: Does this application send any data to the cloud?**  
+A: No, everything works completely offline. Your speech data never leaves your computer.
 
-### Release Build
+**Q: What languages are supported?**  
+A: Currently only English is supported, as we're using the English Vosk model.
 
-       cd build
-       cmake ..
-       cmake --build . --config Release
+**Q: Can I add custom dictation commands?**  
+A: Yes, you can add custom commands by editing the `dictation_commands` section in the `settings.json` file.
+
+**Q: Why does the application need a specific sample rate (16000 Hz)?**  
+A: The Vosk speech recognition model is trained on audio at 16000 Hz. Using a different sample rate would reduce accuracy.
+
+**Q: Can I use this for real-time captioning or subtitles?**  
+A: While the application can output text in real-time, it isn't specifically designed for captioning or subtitles. However, you could use the clipboard output option to paste text into a captioning tool.
 
 ## License
 
-This project is licensed under the MIT License – see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- [Vosk](https://alphacephei.com/vosk/) for the offline speech recognition engine
+- [PortAudio](http://www.portaudio.com/) for the audio I/O library
+- [WebRTC VAD](https://github.com/wiseman/py-webrtcvad) for voice activity detection
+- [PyQt](https://riverbankcomputing.com/software/pyqt/) for the GUI framework
+- [pybind11](https://github.com/pybind/pybind11) for C++/Python binding
+- [RapidJSON](https://rapidjson.org/) for JSON parsing

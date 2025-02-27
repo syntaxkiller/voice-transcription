@@ -124,19 +124,19 @@ Development focuses on direct integration with real libraries and APIs for immed
   - `pause()`
   - `resume()`
   - `is_active() -> bool`
-  - `get_next_chunk() -> Optional[AudioChunk]`
   - `get_device_id() -> int`
   - `get_sample_rate() -> int`
   - `get_frames_per_buffer() -> int`
   - `get_last_error() -> str`
   - `get_buffer_size() -> int`
   - `get_buffer_used() -> int`
+  - `get_next_chunk() -> Optional[AudioChunk]`
 - **Error Handling:** Implements layered fallback strategies for handling audio stream issues, with specific error codes/messages.
 
 #### Voice Activity Detection (VAD)
 - **Implementation:** Uses WebRTC VAD with configurable aggressiveness (default is 2).
   - **C++ Class:** `VADHandler` with:
-    - `process_frame(frame: AudioFrame) -> bool`
+    - `is_speech(chunk: AudioChunk) -> bool`
     - `set_aggressiveness(level: int) -> void`
     - `get_aggressiveness() -> int`
 - **Audio Chunking:** Processes audio in 20ms chunks (320 samples at 16000 Hz) using the `AudioChunker` class.
@@ -149,30 +149,24 @@ Development focuses on direct integration with real libraries and APIs for immed
   - **Constructor:** `VoskTranscriber(const std::string& model_path, float sample_rate)`
   - **Methods:**
     - `transcribe(std::unique_ptr<AudioChunk> chunk) -> TranscriptionResult`
-    - `get_last_error() -> std::string`
-    - `is_model_loaded() -> bool`
+    - `transcribe_with_vad(std::unique_ptr<AudioChunk> chunk, bool is_speech) -> TranscriptionResult`
     - `reset() -> void`
-    - `get_model_info() -> ModelInfo`
+    - `is_model_loaded() -> bool`
+    - `get_last_error() -> std::string`
 - **Memory Management:** Uses RAII for proper Vosk object management.
 - **GUI Status:** Displays "Offline – Vosk" until the model loads.
 - **Model Loading:** Handled in a background thread via the `ModelLoader` class with progress reporting.
 - **JSON Processing:** Uses RapidJSON for parsing Vosk output with proper error handling.
 
-#### Vosk API Requirements
-- Utilizes `VoskModel` and `VoskRecognizer` objects.
-- Requires 16-bit PCM, mono, 16000 Hz audio input.
-- Supports partial and final results.
-- Ensures proper release and verification (e.g., checksums) of model data.
-
 #### Audio Processing Function
 - **Function:** `process_audio(audio_stream: ControlledAudioStream) -> TranscriptionResult`  
   _Runs in a separate thread._
   - **Returns:** A `TranscriptionResult` object with:
-    - `text (str)`: Transcribed text
+    - `raw_text (str)`: Transcribed text before processing
+    - `processed_text (str)`: Text after command processing
     - `is_final (bool)`: Final or partial result indicator
     - `confidence (float)`: Confidence score (0.0–1.0)
-    - `alternatives (List[str])`: Alternative transcriptions
-    - `word_timestamps (List[WordTiming])`: Timing information per word
+    - `timestamp_ms (int)`: Timestamp of when the transcription was generated
 - **Error Handling:** Implements layered error strategies with specific error code/message.
 
 #### Threading and Queues
@@ -192,7 +186,7 @@ Development focuses on direct integration with real libraries and APIs for immed
 
 #### Simulated Keypress Output
 - **Method:** Simulate keypresses via Windows `SendInputW` API.
-  - **C++ Function:** `simulate_keypresses(text: std::wstring) -> bool` (exposed to Python)
+  - **C++ Function:** `simulate_keypresses(text: std::wstring, delay_ms: int = 20) -> bool` (exposed to Python)
 - **Details:**
   - Uses `INPUT` structures with proper Unicode handling.
   - Converts text to key codes, handling modifiers and special characters.
@@ -204,9 +198,8 @@ Development focuses on direct integration with real libraries and APIs for immed
 - **Alternative Method:** Option to copy text to the clipboard instead of simulating keypresses.
   - Controlled by the `clipboard_output` setting (default is false).
 - **Managed by:** the `ClipboardManager` class with methods:
-  - `copy_to_clipboard(text: str) -> bool`
-  - `get_clipboard_text() -> str`
-  - `clear_clipboard() -> void`
+  - `set_clipboard_text(text: std::wstring) -> bool`
+  - `get_clipboard_text() -> std::wstring`
 
 #### Focus Management
 - **User Guidance:** Advises users to keep the target application focused.
@@ -232,14 +225,13 @@ Development focuses on direct integration with real libraries and APIs for immed
 
 #### Command Processor
 - **Module:** `command_processor.py`
-- **Function:** Processes raw transcription text to identify and execute commands.
-- **Implemented by:** the `CommandProcessor` class with methods:
-  - `process_text(text: str) -> ProcessedText`
+- **Implementation:** The `CommandProcessor` class with methods:
+  - `process(text: str) -> str`
   - `add_command(phrase: str, action: str) -> bool`
   - `remove_command(phrase: str) -> bool`
-  - `get_all_commands() -> List[Command]`
-- **Implementation:** Uses regular expressions for mapping phrases to actions, with compiled patterns for efficiency and context-aware recognition.
-- **Execution:** Commands are executed via simulated keypresses through the `CommandExecutor` class.
+  - `get_commands() -> List[Dict]`
+- **Functionality:** Uses regular expressions for mapping command phrases to actions, with compiled patterns for efficiency and context-aware recognition.
+- **Execution:** Commands are processed and replaced in the transcribed text before being sent to the output method.
 
 ---
 
@@ -298,56 +290,104 @@ Development focuses on direct integration with real libraries and APIs for immed
 
 ---
 
-### 8. Development Environment
+### 8. Build Process
 
-#### Build and Setup
+#### Prerequisites
+- **Visual Studio:** 2019 or 2022 with C++ workload  
+- **Python:** 3.8 or later with required packages (see `requirements.txt`)  
+- **CMake:** 3.14 or later
 
-**Setup Script:** A consolidated `setup.bat` handles dependencies with multiple fallback mechanisms:
-- Attempts to download pre-built binaries first
-- Falls back to building from source if needed
-- Provides clear error messages with recovery options
-- Uses absolute paths to avoid directory navigation issues
-- Includes verification steps to confirm successful installation
+#### Build Steps
+1. **Run the setup script:**  
+   Run `setup.bat`  
+   This script handles:
+   - Python dependency installation with robust error handling
+   - PortAudio setup through multiple fallback methods:
+     - Downloading pre-built binaries
+     - Building from source with CMake
+     - Searching for existing installations
+     - Creating placeholders with warnings if all else fails
+   - RapidJSON setup for JSON parsing
+   - Creation of necessary directories and files
+   - Configuration of the build environment
 
-**Dependency Management:** Clear separation between essential and optional dependencies with appropriate handling for each category:
-- **Essential packages:** Required for core functionality (PyQt5, pybind11, etc.)
-- **Optional packages:** Enhance functionality but not strictly required (pytest, etc.)
+2. **Configure with CMake:**  
+   In the command line, run:  
+   ```
+   cd build
+   cmake ..
+   ```
 
-**Automation:** Creates necessary directories and files, with clear error messages for missing dependencies.
+3. **Build the project:**  
+   Execute:  
+   ```
+   cmake --build . --config Release
+   ```
 
-#### Testing Strategy
-- **Unit Testing:** Separate unit tests for C++ (using Google Test) and Python (using pytest).
-- **Integration Tests:** Tests for cross-language functionality using pybind11.
-- **Continuous Integration:** Utilizes GitHub Actions for automated Windows builds, tests, and coverage reporting.
-- **Test Coverage:** Aims for >80% coverage of core functionality, including error paths.
+4. **Run the application:**  
+   Execute:  
+   ```
+   python src/gui/main_window.py
+   ```
+
+#### Debugging
+- **C++ Debugging:** Use Visual Studio for C++ debugging by opening the generated solution file in the build directory.
+- **Python Debugging:** Use the Python debugger for Python code, or attach Visual Studio to the Python process.
+- **Logs:** Examine log files in the `logs` directory for detailed diagnostics.
 
 ---
 
-### 9. Languages and Technologies
+### 9. Settings File (`settings.json`)
 
-#### Backend (C++)
-- **Language Standard:** C++17
-- **Libraries/Dependencies:**
-  - PortAudio 19.7.0 or later (audio capture)
-  - Windows APIs (SendInputW, RegisterHotKey, GetForegroundWindow, WM_DEVICECHANGE)
-  - WebRTC VAD (voice activity detection)
-  - Vosk API 0.3.45 or later (speech recognition)
-  - RapidJSON (for parsing Vosk results)
-
-#### GUI (Python)
-- **Python Version:** 3.8 or later
-- **Framework:** PyQt 5.15 or later
-
-#### Inter-Language Bridge
-- **Tool:** pybind11 2.9.0 or later (for C++ to Python integration)
-
-#### Testing
-- **C++ Testing:** Google Test framework
-- **Python Testing:** pytest with pytest-qt for GUI tests
+```json
+{
+  "audio": {
+    "default_device_id": -1,
+    "vad_aggressiveness": 2,
+    "hangover_timeout_ms": 300,
+    "sample_rate": 16000,
+    "frames_per_buffer": 320,
+    "noise_threshold": 0.05
+  },
+  "transcription": {
+    "engine": "vosk",
+    "model_path": "models/vosk/vosk-model-en-us-0.22",
+    "keypress_delay_ms": 20,
+    "keypress_rate_limit_cps": 100
+  },
+  "shortcut": {
+    "modifiers": ["Ctrl", "Shift"],
+    "key": "T"
+  },
+  "ui": {
+    "pause_on_active_window_change": false,
+    "confirmation_feedback": true
+  },
+  "output": {
+    "method": "simulated_keypresses",
+    "clipboard_output": false
+  },
+  "dictation_commands": {
+    "supported_commands": [
+      { "phrase": "period", "action": "." },
+      { "phrase": "comma",  "action": "," },
+      { "phrase": "question mark", "action": "?" },
+      { "phrase": "exclamation point", "action": "!" },
+      { "phrase": "new line", "action": "{ENTER}" },
+      { "phrase": "new paragraph", "action": "{ENTER}{ENTER}" },
+      { "phrase": "space", "action": " " },
+      { "phrase": "control enter", "action": "{CTRL+ENTER}" },
+      { "phrase": "all caps", "action": "{CAPSLOCK}" },
+      { "phrase": "caps lock", "action": "{CAPSLOCK}" }
+    ]
+  }
+}
+```
 
 ---
 
 ### 10. File Structure
+```
 /voice-transcription/
 ├── src/
 │   ├── gui/
@@ -394,7 +434,7 @@ Development focuses on direct integration with real libraries and APIs for immed
 │   └── googletest/               # Google Test framework
 ├── models/
 │   └── vosk/
-│       └── vosk-model-small-en-us-0.15/   # Vosk model (or other chosen model)
+│       └── vosk-model-en-us-0.22/   # Vosk model
 ├── docs/
 │   ├── user_guide.md             # User documentation
 │   ├── installation_guide.md     # Installation instructions
@@ -411,96 +451,11 @@ Development focuses on direct integration with real libraries and APIs for immed
 ├── project_spec.md             # This specification document
 ├── LICENSE
 └── CHANGELOG.md
-
-### 11. Build Process
-
-#### Prerequisites
-- **Visual Studio:** 2019 or 2022 with C++ workload  
-- **Python:** 3.8 or later with required packages (see `requirements.txt`)  
-- **CMake:** 3.14 or later
-
-#### Build Steps
-1. **Run the setup script:**  
-   Run `setup.bat`  
-   This script handles:
-   - Python dependency installation with robust error handling
-   - PortAudio setup through multiple fallback methods:
-     - Downloading pre-built binaries
-     - Building from source with CMake
-     - Searching for existing installations
-     - Creating placeholders with warnings if all else fails
-   - RapidJSON setup for JSON parsing
-   - Creation of necessary directories and files
-   - Configuration of the build environment
-
-2. **Configure with CMake:**  
-   In the command line, run:  
-   cd build  
-   cmake ..
-
-3. **Build the project:**  
-   Execute:  
-   cmake --build . --config Release
-
-4. **Run the application:**  
-   Execute:  
-   python src/gui/main_window.py
-
-#### Debugging
-- **C++ Debugging:** Use Visual Studio for C++ debugging by opening the generated solution file in the build directory.
-- **Python Debugging:** Use the Python debugger for Python code, or attach Visual Studio to the Python process.
-- **Logs:** Examine log files in the `logs` directory for detailed diagnostics.
+```
 
 ---
 
-### 12. Settings File (`settings.json`)
-
-{
-  "audio": {
-    "default_device_id": -1,
-    "vad_aggressiveness": 2,
-    "hangover_timeout_ms": 300,
-    "sample_rate": 16000,
-    "frames_per_buffer": 320,
-    "noise_threshold": 0.05
-  },
-  "transcription": {
-    "engine": "vosk",
-    "model_path": "models/vosk/vosk-model-small-en-us-0.15",
-    "keypress_delay_ms": 20,
-    "keypress_rate_limit_cps": 100
-  },
-  "shortcut": {
-    "modifiers": ["Ctrl", "Shift"],
-    "key": "T"
-  },
-  "ui": {
-    "pause_on_active_window_change": false,
-    "confirmation_feedback": true
-  },
-  "output": {
-    "method": "simulated_keypresses",
-    "clipboard_output": false
-  },
-  "dictation_commands": {
-    "supported_commands": [
-      { "phrase": "period", "action": "." },
-      { "phrase": "comma",  "action": "," },
-      { "phrase": "question mark", "action": "?" },
-      { "phrase": "exclamation point", "action": "!" },
-      { "phrase": "new line", "action": "{ENTER}" },
-      { "phrase": "new paragraph", "action": "{ENTER}{ENTER}" },
-      { "phrase": "space", "action": " " },
-      { "phrase": "control enter", "action": "{CTRL+ENTER}" },
-      { "phrase": "all caps", "action": "{CAPSLOCK}" },
-      { "phrase": "caps lock", "action": "{CAPSLOCK}" }
-    ]
-  }
-}
-
----
-
-### 13. Implementation Notes
+### 11. Implementation Notes
 
 #### Development Philosophy
 - **Robust Error Handling:** Implement thorough error recovery systems with multi-layered fallback strategies.
@@ -521,64 +476,3 @@ Development focuses on direct integration with real libraries and APIs for immed
 - Implement background training for personalized voice models.
 - Add support for speaker diarization (identifying different speakers).
 - Implement automatic punctuation and capitalization.
-
-### 14. Implementation Status and Roadmap
-
-#### Current Status
-
-The project has established its foundational architecture with the following components:
-- Basic project structure with C++ backend and Python frontend
-- Working CMake configuration with proper target ordering
-- PortAudio integration for audio device management
-- WebRTC VAD interface for voice activity detection
-- Keyboard simulation module for text output
-- Window management for device/focus tracking
-- Python GUI shell using PyQt5
-
-#### Recently Resolved Issues
-
-Build process fixes completed:
-- ✅ Fixed CMake configuration target ordering issues
-- ✅ Properly organized target definition and target-specific commands
-- ✅ Successfully built the Python module (voice_transcription_backend.pyd)
-
-#### Implementation Roadmap
-
-#### Phase 1: Core Components (Current Focus)
-1. **Basic C++/Python Integration**
-   - Implement comprehensive pybind11 bindings for core functions
-   - Test data transfer between languages
-   - Create verification tests for cross-language calls
-
-2. **Core Audio Pipeline**
-   - Complete PortAudio device enumeration
-   - Implement audio streaming
-   - Integrate WebRTC VAD
-   - Connect basic Vosk functionality
-   - Implement text output methods
-
-#### Phase 2: MVP Integration
-1. **End-to-End Flow**
-   - Connect pipeline components
-   - Create thread-safe communication
-   - Implement state management
-   - Build transcription toggle functionality
-
-2. **Basic GUI Integration**
-   - Connect backend to Python GUI
-   - Implement device selection UI
-   - Add status indicators
-   - Create simple settings interface
-
-#### Phase 3: Polish and Refinement
-1. **Robustness Improvements**
-   - Enhance error handling strategies
-   - Implement recovery mechanisms
-   - Add graceful degradation
-   - Create user-friendly error messages
-
-2. **User Experience Enhancements**
-   - Improve visual feedback
-   - Add audio level visualization
-   - Enhance dictation commands
-   - Optimize performance
