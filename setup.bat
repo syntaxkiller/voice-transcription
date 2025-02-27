@@ -190,7 +190,7 @@ if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\B
 
 :: Fix CMake version requirement in PortAudio's CMakeLists.txt
 echo Updating CMake version requirement in PortAudio's CMakeLists.txt...
-powershell -Command "(Get-Content CMakeLists.txt) -replace 'cmake_minimum_required\\(VERSION 2\\.8\\)', 'cmake_minimum_required(VERSION 3.14)' | Set-Content CMakeLists.txt"
+powershell -Command "(Get-Content CMakeLists.txt) | ForEach-Object { $_ -replace 'cmake_minimum_required\s*\(\s*VERSION\s+\d+\.\d+(\.\d+)?\s*\)', 'cmake_minimum_required(VERSION 3.14)' } | Set-Content CMakeLists.txt"
 
 :: Create build directory if it doesn't exist
 if not exist "build" mkdir build
@@ -359,7 +359,7 @@ if %ERRORLEVEL% NEQ 0 (
     echo We'll fix these issues in the next phase of development.
 ) else (
     echo Build completed successfully!
-}
+)
 
 cd ..
 

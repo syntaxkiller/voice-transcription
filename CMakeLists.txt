@@ -209,6 +209,13 @@ if(WIN32)
     )
 endif()
 
+# Copy the compiled module to the Python package directory
+add_custom_command(TARGET voice_transcription_backend POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+        "$<TARGET_FILE:voice_transcription_backend>"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
+
 # Add definitions for Windows and mocks
 if(WIN32)
     target_compile_definitions(voice_transcription_backend PRIVATE 
@@ -218,13 +225,6 @@ if(WIN32)
         _UNICODE
     )
 endif()
-
-# Copy the compiled module to the Python package directory
-add_custom_command(TARGET voice_transcription_backend POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
-        "$<TARGET_FILE:voice_transcription_backend>"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"
-)
 
 # Option to enable testing
 option(BUILD_TESTS "Build tests" ON)
