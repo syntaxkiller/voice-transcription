@@ -147,7 +147,7 @@ if exist "portaudio\include\portaudio.h" (
     echo Found existing PortAudio source in temp\portaudio
 ) else (
     :: Download PortAudio stable release if needed
-    if not exist "pa_stable_v190700_20210406.tgz" (
+    if not exist "/temp/pa_stable_v190700_20210406.tgz" (
         echo Downloading PortAudio stable release...
         powershell -Command "Invoke-WebRequest -Uri 'https://files.portaudio.com/archives/pa_stable_v190700_20210406.tgz' -OutFile 'pa_stable_v190700_20210406.tgz'"
 
@@ -189,30 +189,6 @@ if %ERRORLEVEL% NEQ 0 (
         echo ERROR: Could not find PortAudio header files.
         cd ..
         goto PORTAUDIO_FAILED
-    )
-)
-
-:: Try to download pre-built binaries for Windows
-echo Downloading pre-built PortAudio binaries for Windows...
-if not exist "portaudio_bin.zip" (
-    powershell -Command "Invoke-WebRequest -Uri 'https://files.portaudio.com/binaries/release/portaudio_winnt_20230729_gitdee8e16.zip' -OutFile 'portaudio_bin.zip'"
-    
-    if %ERRORLEVEL% NEQ 0 (
-        echo Failed to download pre-built binaries. Trying alternative source...
-        powershell -Command "Invoke-WebRequest -Uri 'https://files.portaudio.com/binaries/win/pa_snapshot.zip' -OutFile 'portaudio_bin.zip'"
-        
-        if %ERRORLEVEL% NEQ 0 (
-            echo Failed to download pre-built binaries. Will try to build from source.
-            goto BUILD_FROM_SOURCE
-        )
-    )
-
-    echo Extracting pre-built binaries...
-    powershell -Command "Expand-Archive -Force -Path 'portaudio_bin.zip' -DestinationPath 'portaudio_bin'"
-    
-    if %ERRORLEVEL% NEQ 0 (
-        echo Failed to extract pre-built binaries. Will try to build from source.
-        goto BUILD_FROM_SOURCE
     )
 )
 
@@ -453,35 +429,116 @@ if not exist "libs\vosk\lib" mkdir libs\vosk\lib
 if not exist "libs\webrtc_vad\include" mkdir libs\webrtc_vad\include
 if not exist "libs\webrtc_vad\lib" mkdir libs\webrtc_vad\lib
 
-:: Install Python dependencies
-echo Installing Python dependencies...
+echo.
+echo ===================================================
+echo Installing Python Dependencies
+echo ===================================================
+echo.
+
+:: First upgrade pip itself
+echo Upgrading pip...
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
 if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: Failed to install Python dependencies.
-    echo Attempting to continue anyway...
+    echo WARNING: Failed to upgrade pip. Continuing with existing version.
+) else (
+    echo Pip upgraded successfully.
 )
 
-:: Install pybind11
-echo Installing pybind11...
-python -m pip install pybind11
+:: Define essential packages
+set "ESSENTIAL_PACKAGES=PyQt5 pybind11 numpy colorlog"
+set "OPTIONAL_PACKAGES=pytest pytest-mock pytest-qt vosk webrtcvad"
+set "MISSING_ESSENTIAL=0"
+
+:: Try installing all dependencies first
+echo Installing all dependencies from requirements.txt...
+python -m pip install -r requirements.txt
 if %ERRORLEVEL% NEQ 0 (
-    echo WARNING: Failed to install pybind11 via pip.
-    echo Attempting to clone from GitHub instead...
+    echo WARNING: Failed to install all Python dependencies.
+    echo Trying to install essential packages individually...
     
-    if not exist "libs\pybind11" (
-        git clone https://github.com/pybind/pybind11.git libs\pybind11 --depth=1 --branch=v2.11.1
+    :: Install essential packages one by one
+    for %%p in (%ESSENTIAL_PACKAGES%) do (
+        echo Installing essential package: %%p
+        python -m pip install %%p
         if %ERRORLEVEL% NEQ 0 (
-            echo ERROR: Failed to clone pybind11 repository.
-            echo Please install git or download pybind11 manually.
-            goto PYBIND11_FAILED
+            echo ERROR: Failed to install essential package %%p
+            set "MISSING_ESSENTIAL=1"
+        ) else (
+            echo Successfully installed %%p
+        )
+    )
+    
+    :: Attempt to install optional packages
+    echo.
+    echo Attempting to install optional packages...
+    for %%p in (%OPTIONAL_PACKAGES%) do (
+        echo Installing optional package: %%p
+        python -m pip install %%p
+        if %ERRORLEVEL% NEQ 0 (
+            echo WARNING: Could not install optional package %%p
+            echo Some features may be limited.
+        ) else (
+            echo Successfully installed %%p
+        )
+    )
+    
+    :: Check if we can continue
+    if "!MISSING_ESSENTIAL!"=="1" (
+        echo.
+        echo CAUTION: Some essential packages could not be installed.
+        echo The application may not function correctly.
+        set /p CONTINUE="Do you want to continue with setup anyway? (y/n): "
+        if /i "!CONTINUE!" NEQ "y" (
+            echo Setup aborted by user.
+            exit /b 1
         )
     ) else (
-        echo Using existing pybind11 installation in libs\pybind11
+        echo All essential packages were installed successfully.
+        echo Optional packages may have limited functionality.
     )
 ) else (
-    echo pybind11 installed successfully.
+    echo All Python dependencies installed successfully from requirements.txt.
 )
+
+:: Verify pybind11 installation specifically (crucial for C++ binding)
+echo.
+echo Verifying pybind11 installation...
+python -c "import pybind11; print('pybind11', pybind11.__version__)" 2>nul
+if %ERRORLEVEL% NEQ 0 (
+    echo WARNING: pybind11 import failed despite installation.
+    echo Attempting alternative installation methods...
+    
+    :: Try installing via pip with different options
+    python -m pip install pybind11 --force-reinstall
+    if %ERRORLEVEL% NEQ 0 (
+        echo WARNING: pip reinstall failed. Trying to clone from GitHub...
+        
+        if not exist "libs\pybind11" (
+            git clone https://github.com/pybind/pybind11.git libs\pybind11 --depth=1 --branch=v2.11.1
+            if %ERRORLEVEL% NEQ 0 (
+                echo ERROR: Failed to clone pybind11 repository.
+                echo This component is critical for building the application.
+                set /p CONTINUE="Do you want to continue anyway? (y/n): "
+                if /i "!CONTINUE!" NEQ "y" (
+                    echo Setup aborted by user.
+                    exit /b 1
+                )
+            ) else (
+                echo Successfully cloned pybind11 from GitHub.
+            )
+        ) else (
+            echo Using existing pybind11 installation in libs\pybind11
+        )
+    ) else (
+        echo pybind11 reinstalled successfully.
+    )
+) else (
+    echo pybind11 verified successfully.
+)
+
+echo.
+echo Python dependencies setup completed.
+echo.
 
 goto SETUP_BUILD
 
