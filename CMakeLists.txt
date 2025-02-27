@@ -125,31 +125,7 @@ else()
     message(FATAL_ERROR "PortAudio header not found. Run setup.bat first.")
 endif()
 
-# Check for library if not using mock
-if(NOT USING_PORTAUDIO_MOCK)
-    # Check multiple possible library names
-    find_library(PORTAUDIO_LIBRARY 
-        NAMES 
-            portaudio_x64 
-            portaudio_x86
-            portaudio_static_x64
-            portaudio_static_x86
-            portaudio
-        PATHS
-            "${PORTAUDIO_DIR}/lib"
-        NO_DEFAULT_PATH
-    )
-    
-    if(PORTAUDIO_LIBRARY)
-        set(PORTAUDIO_FOUND TRUE)
-        message(STATUS "Found PortAudio library: ${PORTAUDIO_LIBRARY}")
-    else()
-        set(USING_PORTAUDIO_MOCK TRUE)
-        message(STATUS "PortAudio library not found, will use mock implementation")
-    endif()
-endif()
-
-# Vosk - allow mock or real implementation
+# Vosk
 set(VOSK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/vosk")
 set(VOSK_INCLUDE_DIR "${VOSK_DIR}/include")
 

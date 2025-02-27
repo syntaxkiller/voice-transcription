@@ -16,6 +16,7 @@ libs/vosk/
 libs/webrtc_vad/
 libs/googletest/
 libs/pybind11/
+libs/rapidjson/
 models/vosk/mock-model/
 temp/
 
