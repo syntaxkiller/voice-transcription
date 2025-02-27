@@ -91,32 +91,6 @@ endif()
 
 message(STATUS "Found PortAudio library: ${PORTAUDIO_LIBRARY}")
 
-# Add portaudio DLL to output directory for Windows
-if(WIN32)
-    # Find the DLL
-    find_file(PORTAUDIO_DLL
-        NAMES 
-            portaudio.dll
-            portaudio_x64.dll
-            portaudio_x86.dll
-        PATHS
-            "${PORTAUDIO_DIR}/lib"
-        NO_DEFAULT_PATH
-    )
-    
-    if(PORTAUDIO_DLL)
-        message(STATUS "Found PortAudio DLL: ${PORTAUDIO_DLL}")
-        # Add command to copy the DLL to output directory
-        add_custom_command(TARGET voice_transcription_backend POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy
-                "${PORTAUDIO_DLL}"
-                "$<TARGET_FILE_DIR:voice_transcription_backend>"
-        )
-    else()
-        message(WARNING "PortAudio DLL not found. Dynamic linking may fail at runtime.")
-    endif()
-endif()
-
 # Check if the header exists
 if(EXISTS "${PORTAUDIO_INCLUDE_DIR}/portaudio.h")
     set(PORTAUDIO_HEADER_FOUND TRUE)
@@ -149,8 +123,6 @@ find_library(VOSK_LIBRARY
 
 if(VOSK_LIBRARY)
     set(VOSK_FOUND TRUE)
-    # Add this line to define USE_REAL_VOSK for compilation
-    target_compile_definitions(voice_transcription_backend PRIVATE USE_REAL_VOSK)
     message(STATUS "Found Vosk library: ${VOSK_LIBRARY}")
 else()
     set(VOSK_FOUND FALSE)
@@ -189,14 +161,21 @@ set(BACKEND_SOURCES
     src/backend/webrtc_vad.cpp
 )
 
-# Create pybind11 module
+# Create pybind11 module - FIRST DEFINE THE TARGET
 pybind11_add_module(voice_transcription_backend
     src/bindings/pybind_wrapper.cpp
     ${BACKEND_SOURCES}
 )
 
-# Link libraries
-if(NOT USING_PORTAUDIO_MOCK AND PORTAUDIO_LIBRARY)
+# THEN add all target-specific commands AFTER the target definition
+
+# Conditionally add the USE_REAL_VOSK definition if Vosk was found
+if(VOSK_FOUND)
+    target_compile_definitions(voice_transcription_backend PRIVATE USE_REAL_VOSK)
+endif()
+
+# Link libraries - ALL target_link_libraries AFTER target definition
+if(PORTAUDIO_LIBRARY)
     target_link_libraries(voice_transcription_backend PRIVATE ${PORTAUDIO_LIBRARY})
 endif()
 
@@ -212,14 +191,7 @@ if(WIN32)
     )
 endif()
 
-# Copy the compiled module to the Python package directory
-add_custom_command(TARGET voice_transcription_backend POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
-        "$<TARGET_FILE:voice_transcription_backend>"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"
-)
-
-# Add definitions for Windows and mocks
+# Add definitions for Windows and mocks - AFTER target definition
 if(WIN32)
     target_compile_definitions(voice_transcription_backend PRIVATE 
         _WIN32_WINNT=0x0601  # Target Windows 7 or later
@@ -229,12 +201,27 @@ if(WIN32)
     )
 endif()
 
+# Copy the compiled module to the Python package directory
+add_custom_command(TARGET voice_transcription_backend POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+        "$<TARGET_FILE:voice_transcription_backend>"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
+
+# Add PortAudio DLL to output directory for Windows - AFTER target definition
+if(WIN32 AND PORTAUDIO_DLL)
+    add_custom_command(TARGET voice_transcription_backend POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${PORTAUDIO_DLL}"
+            "$<TARGET_FILE_DIR:voice_transcription_backend>"
+    )
+endif()
+
 # Option to enable testing
 option(BUILD_TESTS "Build tests" ON)
 
 if(BUILD_TESTS)
-    # Setup and tests code remains the same...
-    # ... (omitted for brevity)
+    # TODO
 endif()
 
 # Installation
