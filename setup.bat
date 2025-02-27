@@ -2,6 +2,77 @@
 setlocal enabledelayedexpansion
 
 echo ===================================================
+echo Setting up RapidJSON...
+echo ===================================================
+echo.
+
+:: Create directories if they don't exist
+if not exist "libs" mkdir libs
+if not exist "libs\rapidjson" mkdir libs\rapidjson
+if not exist "libs\rapidjson\include" mkdir libs\rapidjson\include
+if not exist "temp" mkdir temp
+
+:: Move to temp directory
+cd temp
+
+:: Check if we already have RapidJSON
+if exist "rapidjson\include\rapidjson\document.h" (
+    echo Found existing RapidJSON source in temp\rapidjson
+) else (
+    :: Download RapidJSON from GitHub
+    if not exist "rapidjson.zip" (
+        echo Downloading RapidJSON...
+        powershell -Command "Invoke-WebRequest -Uri 'https://github.com/Tencent/rapidjson/archive/refs/tags/v1.1.0.zip' -OutFile 'rapidjson.zip'"
+
+        if %ERRORLEVEL% NEQ 0 (
+            echo Failed to download RapidJSON archive. Trying alternative source...
+            powershell -Command "Invoke-WebRequest -Uri 'https://github.com/Tencent/rapidjson/archive/master.zip' -OutFile 'rapidjson.zip'"
+            
+            if %ERRORLEVEL% NEQ 0 (
+                echo ERROR: Failed to download RapidJSON. Please check your internet connection.
+                cd ..
+                exit /b 1
+            )
+        )
+    ) else (
+        echo Using existing RapidJSON archive.
+    )
+
+    echo Extracting RapidJSON archive...
+    powershell -Command "Expand-Archive -Force -Path 'rapidjson.zip' -DestinationPath '.'"
+
+    if %ERRORLEVEL% NEQ 0 (
+        echo ERROR: Failed to extract RapidJSON zip file.
+        cd ..
+        exit /b 1
+    )
+    
+    :: Rename the extracted directory to simple "rapidjson"
+    if exist "rapidjson-1.1.0" (
+        echo Renaming directory...
+        move /Y "rapidjson-1.1.0" "rapidjson"
+    ) else if exist "rapidjson-master" (
+        echo Renaming directory...
+        move /Y "rapidjson-master" "rapidjson"
+    )
+)
+
+:: Copy header files to our project
+echo Copying header files...
+if exist "rapidjson\include\rapidjson" (
+    xcopy /E /I /Y "rapidjson\include\rapidjson" "..\libs\rapidjson\include\rapidjson"
+) else (
+    echo ERROR: RapidJSON headers not found in expected location.
+    cd ..
+    exit /b 1
+)
+
+:: Return to the root directory
+cd ..
+
+echo RapidJSON setup completed successfully.
+
+echo ===================================================
 echo Voice Transcription Application - Setup Script
 echo ===================================================
 echo.
@@ -362,16 +433,6 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 cd ..
-
-:: Cleanup temporary files and obsolete setup scripts
-echo.
-echo Cleaning up...
-if exist "setup_portaudio.bat" del setup_portaudio.bat
-if exist "setup_and_run.bat" del setup_and_run.bat
-if exist "setup_dependencies.bat" del setup_dependencies.bat
-if exist "fallback_setup.bat" del fallback_setup.bat
-if exist "improved_setup.bat" del improved_setup.bat
-if exist "improved_setup_fixed.bat" del improved_setup_fixed.bat
 
 :: Verify the proper library setup - create a portaudio.lib from portaudio_x64.lib if needed
 if exist "libs\portaudio\lib\portaudio_x64.lib" (

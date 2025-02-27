@@ -69,7 +69,7 @@ public:
     std::string get_last_error() const { return last_error_; }
 
 private:
-    // Convert JSON result to TranscriptionResult
+    // Parse json result to TranscriptionResult
     TranscriptionResult parse_result(const std::string& json_result);
     
     // Extract text from JSON

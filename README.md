@@ -44,6 +44,7 @@ This application enables real-time speech transcription with a simple keyboard s
 - **PortAudio** – Audio capture  
 - **Vosk** – Speech recognition  
 - **WebRTC VAD** – Voice activity detection  
+- **RapidJSON** – JSON parsing for transcription results
 - **pybind11** – C++/Python binding  
 - **GoogleTest** – C++ testing framework  
 
@@ -82,19 +83,16 @@ If the automatic setup script doesn't work, follow these steps:
    pip install -r requirements.txt
    ~~~
 
-2. **Create necessary directories:**
-
-   ~~~bash
-   mkdir -p build
-   mkdir -p libs/portaudio/include
-   mkdir -p libs/vosk/include
-   mkdir -p libs/webrtc_vad/include
-   mkdir -p models/vosk/mock-model
-   ~~~
+2. **Set up C++ dependencies:**
+   
+   - Download and install PortAudio
+   - Download and include RapidJSON headers
+   - Set up Vosk and its model files
 
 3. **Configure and build with CMake:**
 
    ~~~bash
+   mkdir build
    cd build
    cmake ..
    cmake --build . --config Debug
@@ -115,6 +113,7 @@ If the automatic setup script doesn't work, follow these steps:
 ---
 
 ## Project Structure
+~~~
 /voice-transcription/ 
 ├── src/ # Source code
 │ ├── gui/ # Python GUI components
@@ -132,6 +131,7 @@ If the automatic setup script doesn't work, follow these steps:
 ├── CMakeLists.txt # C++ build configuration
 ├── requirements.txt # Python dependencies
 └── setup.bat # Setup script
+~~~
 ---
 
 ## Using the Application
@@ -163,17 +163,17 @@ If the automatic setup script doesn't work, follow these steps:
 
 ### Current State
 
-- The basic architecture is in place with a working Python GUI and C++ backend framework.  
-- Mock implementations are used in some places to facilitate development.  
-- Core functionality (audio capture, VAD, transcription, output) is implemented.  
+- The basic architecture is in place with a working Python GUI and C++ backend.
+- A functional Vosk transcription engine has been implemented.
+- Core functionality (audio capture, VAD, transcription, output) is implemented.
+- JSON parsing with RapidJSON for transcription results is implemented.
 
 ### Next Steps
 
-- Ensure all dependencies are properly installed.  
-- Complete the Vosk model integration with proper error handling.  
-- Implement comprehensive testing (unit tests and integration tests).  
-- Optimize performance, especially for latency-critical paths.  
-- Enhance the user interface with better feedback.  
+- Comprehensive testing of the Vosk transcription implementation.
+- Enhancing the user interface for better feedback on transcription quality.
+- Implementing configurable transcription parameters.
+- Optimizing performance for lower latency.
 
 ---
 
@@ -199,10 +199,9 @@ cmake --build . --config Release
 
 ## Known Issues
 
-- Initial setup may require adjusting paths depending on your system configuration.  
-- Vosk model download is not yet automated in the setup script.  
-- Currently, the app is Windows-only due to platform-specific APIs for keypress simulation and hotkey capturing.  
-- Voice Activity Detection may need tuning for different environments and microphones.  
+- Initial setup may require adjusting paths depending on your system configuration.
+- The application is Windows-only due to platform-specific APIs for keypress simulation and hotkey capturing.
+- Voice Activity Detection may need tuning for different environments and microphones.
 
 ---
 
