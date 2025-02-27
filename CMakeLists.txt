@@ -36,9 +36,61 @@ else()
     endif()
 endif()
 
-# Find PortAudio - Look for different possible library names
+# Find PortAudio
 set(PORTAUDIO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/portaudio")
 set(PORTAUDIO_INCLUDE_DIR "${PORTAUDIO_DIR}/include")
+
+# Check if the header exists
+if(NOT EXISTS "${PORTAUDIO_INCLUDE_DIR}/portaudio.h")
+    message(FATAL_ERROR "PortAudio header not found. Run the setup_portaudio.bat script first.")
+endif()
+
+message(STATUS "Found PortAudio header: ${PORTAUDIO_INCLUDE_DIR}/portaudio.h")
+
+# Check for library files - try multiple possible names
+find_library(PORTAUDIO_LIBRARY 
+    NAMES 
+        portaudio
+        portaudio_x64 
+        portaudio_x86
+        portaudio_static_x64
+        portaudio_static_x86
+    PATHS
+        "${PORTAUDIO_DIR}/lib"
+    NO_DEFAULT_PATH
+)
+
+if(NOT PORTAUDIO_LIBRARY)
+    message(FATAL_ERROR "PortAudio library not found. Run the setup_portaudio.bat script and check for errors.")
+endif()
+
+message(STATUS "Found PortAudio library: ${PORTAUDIO_LIBRARY}")
+
+# Add portaudio DLL to output directory for Windows
+if(WIN32)
+    # Find the DLL
+    find_file(PORTAUDIO_DLL
+        NAMES 
+            portaudio.dll
+            portaudio_x64.dll
+            portaudio_x86.dll
+        PATHS
+            "${PORTAUDIO_DIR}/lib"
+        NO_DEFAULT_PATH
+    )
+    
+    if(PORTAUDIO_DLL)
+        message(STATUS "Found PortAudio DLL: ${PORTAUDIO_DLL}")
+        # Add command to copy the DLL to output directory
+        add_custom_command(TARGET voice_transcription_backend POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy
+                "${PORTAUDIO_DLL}"
+                "$<TARGET_FILE_DIR:voice_transcription_backend>"
+        )
+    else()
+        message(WARNING "PortAudio DLL not found. Dynamic linking may fail at runtime.")
+    endif()
+endif()
 
 # Check if the header exists
 if(EXISTS "${PORTAUDIO_INCLUDE_DIR}/portaudio.h")
