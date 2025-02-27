@@ -2,9 +2,13 @@
 
 A real-time voice-to-text transcription tool that works entirely offline for Windows, focusing on privacy, low-latency, and reliability.
 
-## Overview
+## Project Status: Active Development
 
-This application enables real-time speech transcription with a simple keyboard shortcut toggle. It captures audio from your microphone, processes it through an offline speech recognition engine (Vosk), and outputs the text either through simulated keypresses or the clipboard.
+⚠️ **Note:** This project is currently in active development and not yet feature complete. The core architecture is in place, but several components need implementation and integration.
+
+**Current Focus:** Building the core audio processing pipeline and fixing CMake configuration issues.
+
+## Overview
 
 ## Key Features
 
@@ -67,34 +71,54 @@ This application enables real-time speech transcription with a simple keyboard s
 
        python src/gui/main_window.py
 
-### Manual Setup
+### Troubleshooting Common Build Issues
 
-If you need to perform a manual setup:
+If you encounter build errors related to CMake configuration:
 
-1. **Install Python dependencies:**
+1. **Target definition order issue:**
+   - Error message: `No TARGET 'voice_transcription_backend' has been created in this directory`
+   - Fix: The project maintainers are working on fixing this issue in the CMakeLists.txt file
 
-       pip install -r requirements.txt
+2. **PortAudio linking problems:**
+   - Error message: `Could not find PortAudio library`
+   - Potential fix: Manually copy the correct version of PortAudio library (portaudio.lib or portaudio_x64.lib) to the libs/portaudio/lib directory
 
-2. **Set up C++ dependencies:**
+3. **Python binding issues:**
+   - Error message: `ImportError: No module named 'voice_transcription_backend'`
+   - Fix: Ensure the build process completed successfully and the .pyd file was copied to the src directory
 
-   - Download and install PortAudio
-   - Download and include RapidJSON headers
-   - Set up Vosk and its model files
+For other issues, please check the project's issue tracker or submit a new issue.
 
-3. **Configure and build with CMake:**
+### Development Build
 
-       mkdir build
-       cd build
-       cmake ..
-       cmake --build . --config Release
+For developers working on the codebase:
 
-4. **Ensure the built module is copied to the source directory:**
+1. **Manual fix for CMake issues:**
+   - Open CMakeLists.txt and ensure the target definition (`pybind11_add_module`) appears before any references to the target
+   - Move all `target_compile_definitions`, `target_link_libraries`, and `add_custom_command` calls after the target definition
+   - Re-run CMake configuration and build
 
-       copy build\bin\Release\voice_transcription_backend.pyd src\
+2. **Testing the C++/Python bridge:**
+   - Create a simple test script in Python that imports the voice_transcription_backend module
+   - Call a basic function to verify the binding works
+   - Check for any import or runtime errors
 
-5. **Launch the application:**
+## Development Roadmap
 
-       python src/gui/main_window.py
+### Current Focus (MVP Components)
+- Fix CMake build configuration issues
+- Implement and test basic C++/Python integration
+- Develop core audio pipeline (device enumeration, streaming, VAD, transcription)
+- Create minimal end-to-end processing flow
+- Implement basic shortcut functionality
+- Connect backend to simple GUI
+
+### Future Enhancements
+- Enhance UI with better visual feedback
+- Improve error handling and recovery mechanisms
+- Add customizable dictation commands
+- Optimize performance for lower latency
+- Add support for different transcription models
 
 ## Project Structure
 
@@ -168,12 +192,6 @@ Copy/voice-transcription/
        cd build
        cmake ..
        cmake --build . --config Release
-
-## Known Issues
-
-- The application is Windows-only due to platform-specific APIs for keypress simulation and hotkey capturing.
-- Voice Activity Detection may need tuning for different environments and microphones.
-- Large speech models can consume significant memory; consider using smaller models on lower-end hardware.
 
 ## License
 

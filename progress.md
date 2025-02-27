@@ -59,47 +59,57 @@
 - [x] ✅ Implemented layered fallback for dependency installation
 - [x] ✅ Added verification steps to confirm successful installations
 
+## Current Build Issues
+
+**CMake Configuration Issues:**
+- ❌ Target ordering problem in CMakeLists.txt - `voice_transcription_backend` target referenced before it's defined
+- ❌ Incorrect placement of `target_compile_definitions` and other target-specific commands
+- ❌ Build fails due to improper target definition order
+
 ## Next Steps
 
 ### Immediate Tasks
 
-#### Complete testing of Vosk implementation:
-- Test with real audio input
-- Verify transcription accuracy
-- Measure and optimize performance
-- Create unit tests to verify transcription quality
+#### Fix CMake Build Configuration:
+- Reorder CMakeLists.txt to define the `voice_transcription_backend` target before referencing it
+- Move all target-specific commands (`target_link_libraries`, `target_compile_definitions`) after target definition
+- Ensure proper dependency ordering in the build process
+- Create verification tests for successful build outcomes
 
-#### Enhance Python GUI integration:
-- Update status indicators for transcription results
-- Add confidence display
-- Improve error reporting for transcription issues
-- Implement settings panel for configuration options
+#### Implement Basic C++/Python Bridge:
+- Create a simple "hello world" test function to verify pybind11 integration
+- Test basic data type conversions between C++ and Python
+- Implement proper error handling for cross-language calls
+- Unit test each bound function individually before integration
 
-#### Implement comprehensive error handling:
-- Add recovery from transcription errors
-- Handle model loading failures gracefully
-- Add fallback modes for device disconnection
-- Improve user feedback during recoverable errors
+#### Core Audio Pipeline Development:
+- Complete PortAudio device enumeration and selection
+- Implement and test audio streaming with proper buffer management
+- Integrate WebRTC VAD with test cases for speech/non-speech detection
+- Connect basic Vosk functionality with a small test model
+- Implement simple text output methods (keypresses or clipboard)
+
+#### Build End-to-End Minimal Workflow:
+- Connect all components into a single processing pipeline
+- Implement simple circular buffer for audio samples
+- Create thread-safe queues for cross-thread communication
+- Build state management for transcription toggling
+- Add logging throughout the pipeline for debugging
 
 ### Medium-Term Goals
 
-#### Implement full test suite:
-- Unit tests for all C++ components including Vosk integration
-- Python GUI tests
-- Integration tests for end-to-end functionality
-- Add CI/CD pipeline for automatic testing
+#### Complete User Interface Integration:
+- Connect C++ backend components to Python GUI
+- Implement device selection dropdown with proper feedback
+- Create audio level visualization for input monitoring
+- Add transcription status indicators
+- Implement user-friendly error notifications
 
-#### Optimize performance:
-- Measure and optimize memory usage
-- Profile and improve transcription latency
-- Enhance thread management
-- Implement buffer size optimization
-
-#### Enhance user experience:
-- Add visual feedback for transcription confidence
-- Improve error reporting with actionable guidance
-- Add configuration options for transcription parameters
-- Implement profile system for different usage scenarios (e.g., quiet room vs. noisy environment)
+#### Improve Robustness and Error Handling:
+- Implement comprehensive error recovery strategies
+- Add graceful degradation for component failures
+- Create user-friendly error messages with recovery suggestions
+- Implement automatic recovery for transient errors
 
 ### Long-Term Goals
 
