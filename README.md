@@ -4,11 +4,12 @@ A real-time voice-to-text transcription tool that works entirely offline for Win
 
 ## Project Status: Active Development
 
-⚠️ **Note:** This project is currently in active development and not yet feature complete. The core architecture is in place, but several components need implementation and integration.
+⚠️ **Note:** This project is currently in active development. The core architecture is in place, and the build system is now working correctly. We've successfully fixed the CMake configuration issues that were previously blocking progress.
 
-**Current Focus:** Building the core audio processing pipeline and fixing CMake configuration issues.
-
-## Overview
+**Current Focus:** 
+- Implementing and testing the core audio processing pipeline
+- Setting up basic C++/Python integration tests
+- Developing the device enumeration and audio streaming functionality
 
 ## Key Features
 
@@ -71,13 +72,12 @@ A real-time voice-to-text transcription tool that works entirely offline for Win
 
        python src/gui/main_window.py
 
-### Troubleshooting Common Build Issues
+## Troubleshooting Common Build Issues
 
-If you encounter build errors related to CMake configuration:
-
-1. **Target definition order issue:**
-   - Error message: `No TARGET 'voice_transcription_backend' has been created in this directory`
-   - Fix: The project maintainers are working on fixing this issue in the CMakeLists.txt file
+~~1. **Target definition order issue:**~~
+   - ~~Error message: `No TARGET 'voice_transcription_backend' has been created in this directory`~~
+   - ~~Fix: The project maintainers are working on fixing this issue in the CMakeLists.txt file~~
+   - **FIXED**: This issue has been resolved in the latest version of the CMakeLists.txt file.
 
 2. **PortAudio linking problems:**
    - Error message: `Could not find PortAudio library`
@@ -87,7 +87,9 @@ If you encounter build errors related to CMake configuration:
    - Error message: `ImportError: No module named 'voice_transcription_backend'`
    - Fix: Ensure the build process completed successfully and the .pyd file was copied to the src directory
 
-For other issues, please check the project's issue tracker or submit a new issue.
+4. **RapidJSON C++17 warnings:**
+   - Warning: `std::iterator class template is deprecated in C++17`
+   - Fix: These are non-critical warnings. If desired, you can add `_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING` to the target's compile definitions.
 
 ### Development Build
 
