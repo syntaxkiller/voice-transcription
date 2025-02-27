@@ -11,7 +11,6 @@ CMakeCache.txt
 cmake_install.cmake
 install_manifest.txt
 
-# Downloaded or generated dependencies
 libs/portaudio/
 libs/vosk/
 libs/webrtc_vad/
@@ -19,6 +18,14 @@ libs/googletest/
 libs/pybind11/
 models/vosk/mock-model/
 temp/
+
+# PortAudio build artifacts
+portaudio_bin/
+portaudio_bin.zip
+portaudio_binaries/
+portaudio_prebuilt/
+portaudio_prebuilt.zip
+pa_stable_v*.tgz
 
 # Vosk models
 # models/vosk/vosk-model-en-us-0.22/ is tracked with Git LFS
