@@ -434,30 +434,6 @@ if "!FOUND_LIB!"=="1" (
     goto FIND_ALTERNATIVE
 )
 
-:FIND_ALTERNATIVE
-echo Looking for alternative PortAudio libraries...
-
-:: Check for Microsoft's vcpkg
-if exist "C:\vcpkg\installed\x64-windows\lib\portaudio.lib" (
-    echo Found PortAudio via vcpkg. Copying...
-    copy "C:\vcpkg\installed\x64-windows\lib\portaudio.lib" "..\libs\portaudio\lib\"
-    copy "C:\vcpkg\installed\x64-windows\bin\portaudio.dll" "..\libs\portaudio\lib\" 2>nul
-    set FOUND_LIB=1
-) else if exist "C:\vcpkg\installed\x64-windows-static\lib\portaudio.lib" (
-    echo Found PortAudio static library via vcpkg. Copying...
-    copy "C:\vcpkg\installed\x64-windows-static\lib\portaudio.lib" "..\libs\portaudio\lib\"
-    set FOUND_LIB=1
-)
-
-:: If all else fails, try to create a minimal library
-if !FOUND_LIB! EQU 0 (
-    echo WARNING: Could not build or find PortAudio library.
-    echo Creating a minimal library file as placeholder...
-    echo Create an empty lib file > "..\libs\portaudio\lib\portaudio.lib"
-    copy "..\libs\portaudio\lib\portaudio.lib" "..\libs\portaudio\lib\portaudio_x64.lib" 2>nul
-    echo WARNING: You will need to provide a proper PortAudio library for production use.
-)
-
 cd ..
 
 :PORTAUDIO_DONE
@@ -545,8 +521,6 @@ echo Building the project...
 cmake --build . --config Debug
 if %ERRORLEVEL% NEQ 0 (
     echo WARNING: Build encountered some errors.
-    echo This is expected during initial setup.
-    echo We'll fix these issues in the next phase of development.
 ) else (
     echo Build completed successfully!
 )
