@@ -242,8 +242,15 @@ if !FOUND_LIB! EQU 1 (
     goto PORTAUDIO_DONE
 )
 
+:: Replace the BUILD_FROM_SOURCE section in setup.bat with this fixed code
+
 :BUILD_FROM_SOURCE
 echo Will attempt to build PortAudio from source...
+
+:: Store the absolute paths we'll need
+set "PORTAUDIO_SRC_DIR=%CD%\portaudio"
+set "LIB_TARGET_DIR=%CD%\..\libs\portaudio\lib"
+set "CURRENT_DIR=%CD%"
 
 :: Navigate to portaudio directory
 cd portaudio
@@ -277,7 +284,7 @@ if %ERRORLEVEL% NEQ 0 (
     
     if %ERRORLEVEL% NEQ 0 (
         echo WARNING: CMake configuration still failed. Will try to find libraries elsewhere.
-        cd ..\..
+        cd "%CURRENT_DIR%"
         goto FIND_ALTERNATIVE
     )
 )
@@ -288,32 +295,144 @@ cmake --build . --config Release
 
 if %ERRORLEVEL% NEQ 0 (
     echo WARNING: Build failed. Will try to find libraries elsewhere.
-    cd ..\..
+    cd "%CURRENT_DIR%"
     goto FIND_ALTERNATIVE
 )
 
 echo PortAudio built successfully.
 
-:: Copy built library files
-if exist "Release\portaudio.lib" (
-    echo Copying built library files...
-    copy "Release\portaudio.lib" "..\..\libs\portaudio\lib\portaudio.lib"
-    copy "Release\portaudio.lib" "..\..\libs\portaudio\lib\portaudio_x64.lib"
-    if exist "Release\portaudio.dll" (
-        copy "Release\portaudio.dll" "..\..\libs\portaudio\lib\"
+:: Store build directory absolute path
+set "BUILD_DIR=%CD%"
+cd "%CURRENT_DIR%"
+
+:: Check for specific known locations first based on the build log
+set "FOUND_LIB=0"
+
+if exist "%BUILD_DIR%\Release\portaudio_static_x64.lib" (
+    echo Found static library: %BUILD_DIR%\Release\portaudio_static_x64.lib
+    copy "%BUILD_DIR%\Release\portaudio_static_x64.lib" "%LIB_TARGET_DIR%\portaudio.lib"
+    copy "%BUILD_DIR%\Release\portaudio_static_x64.lib" "%LIB_TARGET_DIR%\portaudio_x64.lib"
+    set "FOUND_LIB=1"
+    
+    if exist "%BUILD_DIR%\Release\portaudio_x64.dll" (
+        echo Found DLL: %BUILD_DIR%\Release\portaudio_x64.dll
+        copy "%BUILD_DIR%\Release\portaudio_x64.dll" "%LIB_TARGET_DIR%\"
+    )
+) else if exist "%BUILD_DIR%\Release\portaudio_x64.lib" (
+    echo Found library: %BUILD_DIR%\Release\portaudio_x64.lib
+    copy "%BUILD_DIR%\Release\portaudio_x64.lib" "%LIB_TARGET_DIR%\portaudio.lib"
+    copy "%BUILD_DIR%\Release\portaudio_x64.lib" "%LIB_TARGET_DIR%\portaudio_x64.lib"
+    set "FOUND_LIB=1"
+    
+    if exist "%BUILD_DIR%\Release\portaudio_x64.dll" (
+        echo Found DLL: %BUILD_DIR%\Release\portaudio_x64.dll
+        copy "%BUILD_DIR%\Release\portaudio_x64.dll" "%LIB_TARGET_DIR%\"
+    )
+) else if exist "%BUILD_DIR%\Release\portaudio.lib" (
+    echo Found library: %BUILD_DIR%\Release\portaudio.lib
+    copy "%BUILD_DIR%\Release\portaudio.lib" "%LIB_TARGET_DIR%\portaudio.lib"
+    copy "%BUILD_DIR%\Release\portaudio.lib" "%LIB_TARGET_DIR%\portaudio_x64.lib"
+    set "FOUND_LIB=1"
+    
+    if exist "%BUILD_DIR%\Release\portaudio.dll" (
+        echo Found DLL: %BUILD_DIR%\Release\portaudio.dll
+        copy "%BUILD_DIR%\Release\portaudio.dll" "%LIB_TARGET_DIR%\"
+    )
+)
+
+:: If we didn't find libraries in the expected locations, continue to alternative paths
+if "%FOUND_LIB%"=="0" (
+    echo WARNING: Could not find built library files in the expected Release directory.
+    echo Checking other possible locations...
+    
+    cd "%BUILD_DIR%"
+    
+    :: Check for libraries in alternative locations
+    if exist "lib\Release\portaudio_static.lib" (
+        echo Found static library: lib\Release\portaudio_static.lib
+        copy "lib\Release\portaudio_static.lib" "%LIB_TARGET_DIR%\portaudio.lib"
+        copy "lib\Release\portaudio_static.lib" "%LIB_TARGET_DIR%\portaudio_x64.lib"
+        set "FOUND_LIB=1"
+    ) else if exist "lib\Release\portaudio.lib" (
+        echo Found library: lib\Release\portaudio.lib
+        copy "lib\Release\portaudio.lib" "%LIB_TARGET_DIR%\portaudio.lib"
+        copy "lib\Release\portaudio.lib" "%LIB_TARGET_DIR%\portaudio_x64.lib"
+        set "FOUND_LIB=1"
+    )
+    
+    cd "%CURRENT_DIR%"
+)
+
+:: If we still didn't find anything, try creating empty placeholder files
+if "%FOUND_LIB%"=="0" (
+    echo WARNING: Could not find built library files. Creating placeholder library files...
+    echo This is a placeholder > "%LIB_TARGET_DIR%\portaudio.lib"
+    copy "%LIB_TARGET_DIR%\portaudio.lib" "%LIB_TARGET_DIR%\portaudio_x64.lib"
+    
+    echo WARNING: You will need to provide a proper PortAudio library for production use.
+    goto PORTAUDIO_DONE
+)
+
+goto PORTAUDIO_DONE
+
+echo WARNING: Could not find built library files in expected locations.
+echo Will look in other possible locations...
+
+:: If not found in the expected locations, try a broader search but validate the files exist
+set "FOUND_LIB=0"
+
+:: First try specific paths we know might contain the libraries
+if exist "x64\Release\portaudio_static.lib" (
+    echo Found static library: x64\Release\portaudio_static.lib
+    copy "x64\Release\portaudio_static.lib" "..\..\libs\portaudio\lib\portaudio.lib"
+    copy "x64\Release\portaudio_static.lib" "..\..\libs\portaudio\lib\portaudio_x64.lib"
+    set "FOUND_LIB=1"
+) else if exist "lib\Release\portaudio_static.lib" (
+    echo Found static library: lib\Release\portaudio_static.lib
+    copy "lib\Release\portaudio_static.lib" "..\..\libs\portaudio\lib\portaudio.lib"
+    copy "lib\Release\portaudio_static.lib" "..\..\libs\portaudio\lib\portaudio_x64.lib"
+    set "FOUND_LIB=1"
+)
+
+:: If still not found, try a recursive search but verify files exist before copying
+if "!FOUND_LIB!"=="0" (
+    for /r %%f in (portaudio_static*.lib) do (
+        if exist "%%f" (
+            echo Found static library: %%f
+            copy "%%f" "..\..\libs\portaudio\lib\portaudio.lib"
+            copy "%%f" "..\..\libs\portaudio\lib\portaudio_x64.lib"
+            set "FOUND_LIB=1"
+            goto FOUND_LIB_RECURSIVE
+        )
+    )
+    
+    for /r %%f in (portaudio*.lib) do (
+        if exist "%%f" (
+            echo Found library: %%f
+            copy "%%f" "..\..\libs\portaudio\lib\portaudio.lib"
+            copy "%%f" "..\..\libs\portaudio\lib\portaudio_x64.lib"
+            set "FOUND_LIB=1"
+            goto FOUND_LIB_RECURSIVE
+        )
+    )
+)
+
+:FOUND_LIB_RECURSIVE
+:: Look for DLL files if we found a library
+if "!FOUND_LIB!"=="1" (
+    for /r %%f in (portaudio*.dll) do (
+        if exist "%%f" (
+            echo Found DLL: %%f
+            copy "%%f" "..\..\libs\portaudio\lib\"
+        )
     )
     cd ..\..
     goto PORTAUDIO_DONE
-) else if exist "Release\portaudio_static.lib" (
-    echo Copying built static library files...
-    copy "Release\portaudio_static.lib" "..\..\libs\portaudio\lib\portaudio.lib"
-    copy "Release\portaudio_static.lib" "..\..\libs\portaudio\lib\portaudio_x64.lib"
-    cd ..\..
-    goto PORTAUDIO_DONE
 ) else (
-    echo WARNING: Built library files not found in expected location.
+    echo WARNING: Could not find built library files.
     cd ..\..
-}
+    goto FIND_ALTERNATIVE
+)
 
 :FIND_ALTERNATIVE
 echo Looking for alternative PortAudio libraries...
