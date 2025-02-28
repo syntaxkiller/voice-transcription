@@ -6,6 +6,9 @@ import threading
 import time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from .audio_level_meter import AudioLevelMeter, AudioLevelMonitor
+from utils.enhanced_command_processor import EnhancedCommandProcessor
+from utils.error_recovery_system import ErrorRecoveryManager, ErrorCategory
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -54,15 +57,20 @@ class TranscriptionController(QObject):
         super().__init__()
         self.config = config
         self.logger = setup_logger("transcription_controller")
+        self.use_noise_filtering = True
         self.is_transcribing = False
         self.audio_stream = None
         self.vad_handler = None
         self.transcriber = None
         self.keyboard_simulator = None
-        self.command_processor = CommandProcessor(self.config.get("dictation_commands", {}).get("supported_commands", []))
+        self.command_processor = EnhancedCommandProcessor(
+            self.config.get("dictation_commands", {}).get("supported_commands", []),
+            config_path=CONFIG_PATH
+        )
         self.thread_pool = ThreadPoolExecutor(max_workers=3)
         self.stop_event = threading.Event()
         self.window_manager = None
+        self.error_recovery = ErrorRecoveryManager(self)
         
     def initialize(self):
         """Initialize transcription components"""
@@ -100,6 +108,13 @@ class TranscriptionController(QObject):
             self.transcription_error_signal.emit({"code": "INIT_ERROR", "message": str(e)})
             return False
     
+    def toggle_noise_filtering(self, enabled):
+        """Toggle noise filtering on/off"""
+        self.use_noise_filtering = enabled
+        if self.transcriber:
+            self.transcriber.enable_noise_filtering(enabled)
+        return True
+
     def _start_model_loading_progress_monitoring(self):
         """Start a thread to monitor model loading progress"""
         def monitor_progress():
@@ -184,9 +199,20 @@ class TranscriptionController(QObject):
             if not self.audio_stream.start():
                 error_msg = f"Failed to start audio stream: {self.audio_stream.get_last_error()}"
                 self.logger.error(error_msg)
-                self.audio_error_signal.emit({"code": "STREAM_START_ERROR", "message": error_msg})
-                self.is_transcribing = False
-                return False
+                
+                # Use error recovery system
+                error_details = self.error_recovery.handle_error(
+                    ErrorCategory.AUDIO_DEVICE,
+                    "STREAM_START_ERROR",
+                    error_msg,
+                    context={"device_id": device_id}
+                )
+                
+                # Only emit error signal if recovery failed
+                if not error_details.get("recovery_success", False):
+                    self.audio_error_signal.emit(error_details)
+                    self.is_transcribing = False
+                    return False
                 
             # Start transcription thread
             self.thread_pool.submit(self._transcription_thread)
@@ -195,7 +221,16 @@ class TranscriptionController(QObject):
             
         except Exception as e:
             self.logger.error(f"Failed to start transcription: {str(e)}")
-            self.audio_error_signal.emit({"code": "START_ERROR", "message": str(e)})
+            
+            # Use error recovery system
+            error_details = self.error_recovery.handle_error(
+                ErrorCategory.GENERAL,
+                "START_ERROR",
+                f"Failed to start transcription: {str(e)}",
+                exception=e
+            )
+            
+            self.audio_error_signal.emit(error_details)
             self.is_transcribing = False
             return False
     
@@ -220,7 +255,7 @@ class TranscriptionController(QObject):
             return False
         else:
             return self.start_transcription(device_id)
-    
+
     def _transcription_thread(self):
         """Thread function for audio processing and transcription"""
         self.logger.info("Transcription thread started")
@@ -260,13 +295,22 @@ class TranscriptionController(QObject):
                         # End of speech detected
                         speech_detected = False
                 
-                # Process with transcriber
+                # Process with transcriber - using noise filtering if enabled
                 if speech_detected or hangover_counter > 0:
-                    result = self.transcriber.transcribe_with_vad(chunk, is_speech)
-                    
+                    if self.use_noise_filtering:
+                        result = self.transcriber.transcribe_with_noise_filtering(chunk, is_speech)
+                    else:
+                        result = self.transcriber.transcribe_with_vad(chunk, is_speech)
+
                     # Process commands in the transcription
                     if result.raw_text:
-                        result.processed_text = self.command_processor.process(result.raw_text)
+                        # Get foreground application for context
+                        current_window = backend.WindowManager.get_foreground_window_title()
+                        
+                        context = {"application_name": current_window}
+                        result.processed_text = self.command_processor.process_with_context(
+                            result.raw_text, context
+                        )
                         
                         # Emit result for GUI updates
                         self.transcription_signal.emit(result)
@@ -274,10 +318,18 @@ class TranscriptionController(QObject):
                         # Output text if it's a final result
                         if result.is_final and result.processed_text:
                             self._output_text(result.processed_text)
-                            
         except Exception as e:
             self.logger.error(f"Error in transcription thread: {str(e)}")
-            self.transcription_error_signal.emit({"code": "TRANSCRIPTION_ERROR", "message": str(e)})
+            
+            # Use error recovery system
+            error_details = self.error_recovery.handle_error(
+                ErrorCategory.TRANSCRIPTION,
+                "TRANSCRIPTION_ERROR",
+                f"Error during transcription: {str(e)}",
+                exception=e
+            )
+            
+            self.transcription_error_signal.emit(error_details)
         finally:
             self.is_transcribing = False
             self.logger.info("Transcription thread stopped")
@@ -288,15 +340,63 @@ class TranscriptionController(QObject):
             output_method = self.config["output"]["method"]
             if output_method == "simulated_keypresses":
                 delay_ms = self.config["transcription"]["keypress_delay_ms"]
-                self.keyboard_simulator.simulate_keypresses(text, delay_ms)
+                success = self.keyboard_simulator.simulate_keypresses(text, delay_ms)
+                
+                # Check for failure and try recovery
+                if not success:
+                    error_msg = "Failed to simulate keypresses"
+                    self.logger.error(error_msg)
+                    
+                    # Use error recovery system
+                    error_details = self.error_recovery.handle_error(
+                        ErrorCategory.OUTPUT,
+                        "OUTPUT_ERROR",
+                        error_msg,
+                        context={"text": text[:20] + "..." if len(text) > 20 else text}
+                    )
+                    
+                    if error_details.get("recovery_success", False):
+                        # Retry with new method from recovery
+                        self._output_text(text)
+                    else:
+                        self.output_error_signal.emit(error_details)
+                        
             elif output_method == "clipboard":
-                backend.set_clipboard_text(text)
+                success = backend.set_clipboard_text(text)
+                
+                # Similar error handling for clipboard method
+                if not success:
+                    error_msg = "Failed to set clipboard text"
+                    self.logger.error(error_msg)
+                    
+                    error_details = self.error_recovery.handle_error(
+                        ErrorCategory.OUTPUT,
+                        "OUTPUT_ERROR",
+                        error_msg,
+                        context={"text": text[:20] + "..." if len(text) > 20 else text}
+                    )
+                    
+                    if error_details.get("recovery_success", False):
+                        self._output_text(text)
+                    else:
+                        self.output_error_signal.emit(error_details)
+                        
             else:
                 self.logger.warning(f"Unknown output method: {output_method}")
                 
         except Exception as e:
             self.logger.error(f"Error outputting text: {str(e)}")
-            self.output_error_signal.emit({"code": "OUTPUT_ERROR", "message": str(e)})
+            
+            # Use error recovery system
+            error_details = self.error_recovery.handle_error(
+                ErrorCategory.OUTPUT,
+                "OUTPUT_ERROR",
+                f"Error outputting text: {str(e)}",
+                exception=e,
+                context={"text": text[:20] + "..." if len(text) > 20 else text}
+            )
+            
+            self.output_error_signal.emit(error_details)
     
     def _on_device_change(self):
         """Callback for device change notifications"""
@@ -312,7 +412,8 @@ class MainWindow(QMainWindow):
         self.config = self._load_config()
         self.signal_emitter = SignalEmitter()
         self.controller = TranscriptionController(self.config)
-        
+        self.audio_monitor = None  # Will be created when transcription starts
+
         # Initialize UI
         self._init_ui()
         
@@ -359,9 +460,31 @@ class MainWindow(QMainWindow):
         shortcut_layout.addWidget(self.shortcut_value)
         shortcut_layout.addWidget(self.shortcut_button)
         
-        # Status group
+        # Status group with audio level meter
         status_group = QGroupBox("Transcription Status")
-        status_layout = QVBoxLayout(status_group)
+        status_layout = QHBoxLayout(status_group)
+
+        # Left side: status indicator and text
+        left_panel = QVBoxLayout()
+        left_panel.addWidget(self.status_indicator)
+        left_panel.addWidget(self.status_text)
+        left_panel.addWidget(self.toggle_button)
+
+        # Right side: audio level meter
+        right_panel = QVBoxLayout()
+        self.level_meter = AudioLevelMeter()
+        self.level_meter.setFixedWidth(20)
+        level_label = QLabel("Audio Level")
+        level_label.setAlignment(Qt.AlignCenter)
+        right_panel.addWidget(self.level_meter)
+        right_panel.addWidget(level_label)
+
+        # Add both panels to status layout
+        status_layout.addLayout(left_panel, 2)  # 2/3 of the width
+        status_layout.addLayout(right_panel, 1)  # 1/3 of the width
+
+        # Add status group to main layout
+        main_layout.addWidget(status_group)
         
         self.status_indicator = StatusIndicator()
         self.status_text = QLabel("Idle")
@@ -384,7 +507,13 @@ class MainWindow(QMainWindow):
         
         options_layout.addWidget(self.pause_on_window_change)
         options_layout.addWidget(self.use_clipboard)
-        
+
+        self.auto_recovery = QCheckBox("Enable automatic error recovery")
+        self.auto_recovery.setChecked(self.config.get("error_handling", {}).get("auto_recovery", True))
+        self.auto_recovery.stateChanged.connect(self._update_auto_recovery_option)
+
+        options_layout.addWidget(self.auto_recovery)
+
         # Add all groups to main layout
         main_layout.addWidget(device_group)
         main_layout.addWidget(shortcut_group)
@@ -416,7 +545,15 @@ class MainWindow(QMainWindow):
         
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.show()
-        
+
+    def _update_auto_recovery_option(self, state):
+        """Update auto recovery option"""
+        enabled = bool(state)
+        if "error_handling" not in self.config:
+            self.config["error_handling"] = {}
+        self.config["error_handling"]["auto_recovery"] = enabled
+        self._save_config()
+
     def _connect_signals(self):
         """Connect signals and slots"""
         # Button signals
@@ -603,12 +740,24 @@ class MainWindow(QMainWindow):
             self.status_text.setText("Idle")
             self.status_indicator.set_state("idle")
             self.status_bar.showMessage("Transcription stopped")
+            
+            # Stop audio level monitoring
+            if self.audio_monitor:
+                self.audio_monitor.stop_monitoring()
         else:
             if self.controller.start_transcription(device_id):
                 self.toggle_button.setText("Stop Transcription")
                 self.status_text.setText("Transcribing...")
                 self.status_indicator.set_state("active")
                 self.status_bar.showMessage("Transcription started")
+                
+                # Start audio level monitoring
+                if not self.audio_monitor:
+                    self.audio_monitor = AudioLevelMonitor(
+                        self.controller.audio_stream, 
+                        self.level_meter
+                    )
+                self.audio_monitor.start_monitoring()
             else:
                 QMessageBox.warning(
                     self, 
@@ -644,6 +793,9 @@ class MainWindow(QMainWindow):
         """Called when an audio error occurs"""
         self.logger.error(f"Audio error: {error['code']} - {error['message']}")
         
+        # Get user-friendly message
+        user_message = self.controller.error_recovery.get_user_message(error)
+        
         if error["code"] == "DEVICE_CHANGE":
             self.device_selector.refresh_devices()
             
@@ -653,26 +805,47 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(
                     self, 
                     "Device Disconnected", 
-                    "Audio device disconnected. Transcription stopped."
+                    user_message
                 )
                 self.toggle_button.setText("Start Transcription")
                 self.status_text.setText("Idle")
                 self.status_indicator.set_state("idle")
         else:
-            QMessageBox.warning(
-                self, 
-                "Audio Error", 
-                f"Audio error: {error['message']}"
-            )
-            
+            # If recovery was attempted and succeeded, show a less severe message
+            if error.get("recovery_attempted", False) and error.get("recovery_success", True):
+                self.status_bar.showMessage(user_message, 5000)  # Show for 5 seconds
+            else:
+                # Show a dialog for errors that couldn't be recovered
+                QMessageBox.warning(
+                    self, 
+                    "Audio Error", 
+                    user_message
+                )
+
     def _on_transcription_error(self, error):
         """Called when a transcription error occurs"""
         self.logger.error(f"Transcription error: {error['code']} - {error['message']}")
-        QMessageBox.warning(
-            self, 
-            "Transcription Error", 
-            f"Transcription error: {error['message']}"
-        )
+        
+        # Handle model loading progress updates
+        if error['code'] == "MODEL_LOADING":
+            # Update status bar with loading progress
+            self.status_bar.showMessage(error['message'])
+            return
+        elif error['code'] == "MODEL_LOADED":
+            # Update status bar with success message
+            self.status_bar.showMessage(error['message'], 3000)  # Show for 3 seconds
+            return
+        
+        # Get user-friendly message
+        user_message = self.controller.error_recovery.get_user_message(error)
+        
+        # Only show dialog for errors that couldn't be recovered
+        if not error.get("recovery_success", False):
+            QMessageBox.warning(
+                self, 
+                "Transcription Error", 
+                user_message
+            )
         
     def _on_output_error(self, error):
         """Called when an output error occurs"""

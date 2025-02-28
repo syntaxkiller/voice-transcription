@@ -1,11 +1,9 @@
 #include "audio_stream.h"
-#include <cstring>
-#include <iostream>
-#include <sstream>
 #include <chrono>
-#include <thread>
 #include <algorithm>
-#include <random>
+#include <cstring>
+#include <thread>
+#include <condition_variable>
 
 namespace voice_transcription {
 
@@ -35,6 +33,98 @@ AudioChunk& AudioChunk::operator=(AudioChunk&& other) noexcept {
         other.size_ = 0;
     }
     return *this;
+}
+
+// AudioCallbackContext Constructor
+AudioCallbackContext::AudioCallbackContext() 
+    : frames_per_buffer(0), 
+      buffer_pos(0), 
+      read_pos(0), 
+      is_paused(false), 
+      buffer_overflow(false) {
+    buffer.resize(MAX_BUFFER_SIZE, 0.0f);
+}
+
+// Write data to the circular buffer
+void AudioCallbackContext::write_data(const float* data, size_t length) {
+    std::lock_guard<std::mutex> lock(buffer_mutex);
+    
+    // Check for buffer overflow
+    size_t available_space = MAX_BUFFER_SIZE - ((buffer_pos - read_pos) % MAX_BUFFER_SIZE);
+    if (length > available_space) {
+        buffer_overflow = true;
+        
+        // Overwrite old data by advancing read_pos
+        read_pos = (read_pos + (length - available_space)) % MAX_BUFFER_SIZE;
+    }
+    
+    // Write data to the circular buffer
+    for (size_t i = 0; i < length; i++) {
+        buffer[(buffer_pos + i) % MAX_BUFFER_SIZE] = data[i];
+    }
+    
+    buffer_pos = (buffer_pos + length) % MAX_BUFFER_SIZE;
+    
+    // Notify waiting threads that data is ready
+    data_ready_cv.notify_one();
+}
+
+// Read data from the circular buffer
+size_t AudioCallbackContext::read_data(float* output, size_t length) {
+    std::unique_lock<std::mutex> lock(buffer_mutex);
+    
+    // Calculate available data
+    size_t data_available = (buffer_pos >= read_pos) ? 
+        (buffer_pos - read_pos) : 
+        (MAX_BUFFER_SIZE - read_pos + buffer_pos);
+        
+    if (data_available < length) {
+        // Not enough data yet
+        return 0;
+    }
+    
+    // Read data from the circular buffer
+    for (size_t i = 0; i < length; i++) {
+        output[i] = buffer[(read_pos + i) % MAX_BUFFER_SIZE];
+    }
+    
+    read_pos = (read_pos + length) % MAX_BUFFER_SIZE;
+    
+    // Reset overflow flag
+    bool had_overflow = buffer_overflow;
+    buffer_overflow = false;
+    
+    return length;
+}
+
+// Wait for data with timeout
+bool AudioCallbackContext::wait_for_data(size_t min_samples, int timeout_ms) {
+    std::unique_lock<std::mutex> lock(buffer_mutex);
+    
+    // Check if we already have enough data
+    size_t data_available = (buffer_pos >= read_pos) ? 
+        (buffer_pos - read_pos) : 
+        (MAX_BUFFER_SIZE - read_pos + buffer_pos);
+        
+    if (data_available >= min_samples) {
+        return true;
+    }
+    
+    // Wait for data with timeout
+    return data_ready_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms),
+        [this, min_samples]() {
+            size_t data_available = (buffer_pos >= read_pos) ? 
+                (buffer_pos - read_pos) : 
+                (MAX_BUFFER_SIZE - read_pos + buffer_pos);
+            return data_available >= min_samples;
+        });
+}
+
+// Clear buffer
+void AudioCallbackContext::clear() {
+    std::lock_guard<std::mutex> lock(buffer_mutex);
+    read_pos = buffer_pos;
+    buffer_overflow = false;
 }
 
 // ControlledAudioStream implementation
@@ -92,15 +182,20 @@ ControlledAudioStream& ControlledAudioStream::operator=(ControlledAudioStream&& 
     return *this;
 }
 
+// Improved start method with priming of the audio buffer
 bool ControlledAudioStream::start() {
     try {
-        // Stop the stream if it's already active
+        // Stop any existing stream
         if (stream_) {
             stop();
         }
         
         // Clear any previous error
         last_error_.clear();
+        
+        // Reset audio context
+        callback_context_ = std::make_unique<AudioCallbackContext>();
+        callback_context_->frames_per_buffer = frames_per_buffer_;
         
         // Input parameters
         PaStreamParameters inputParams;
@@ -136,14 +231,14 @@ bool ControlledAudioStream::start() {
             return false;
         }
         
-        // Open the stream
+        // Open the stream with reduced latency settings
         PaError err = Pa_OpenStream(
             &stream_,
             &inputParams,  // Input parameters
             nullptr,       // No output parameters (we're only capturing)
             sample_rate_,
             frames_per_buffer_,
-            paClipOff,     // Don't clip input
+            paClipOff | paPrimeOutputBuffersUsingStreamCallback,  // Don't clip input, prime buffers
             audio_callback,
             callback_context_.get()
         );
@@ -162,28 +257,50 @@ bool ControlledAudioStream::start() {
             return false;
         }
         
+        // Let the stream run for a short time to prime the buffer
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        
         return true;
     }
     catch (const std::exception& e) {
         last_error_ = std::string("Exception in start(): ") + e.what();
         return false;
     }
-    catch (...) {
-        last_error_ = "Unknown exception in start()";
-        return false;
-    }
 }
 
+// Improved stop method with better resource cleanup
 void ControlledAudioStream::stop() {
-    if (stream_) {
-        if (Pa_IsStreamActive(stream_) == 1) {
-            Pa_StopStream(stream_);
+    try {
+        if (stream_) {
+            // Stop the stream if it's active
+            if (Pa_IsStreamActive(stream_) == 1) {
+                PaError err = Pa_StopStream(stream_);
+                if (err != paNoError) {
+                    last_error_ = std::string("Failed to stop stream: ") + Pa_GetErrorText(err);
+                }
+            }
+            
+            // Close the stream
+            PaError err = Pa_CloseStream(stream_);
+            if (err != paNoError) {
+                last_error_ = std::string("Failed to close stream: ") + Pa_GetErrorText(err);
+            }
+            
+            stream_ = nullptr;
         }
-        Pa_CloseStream(stream_);
+        
+        // Reset buffer state
+        if (callback_context_) {
+            callback_context_->clear();
+        }
+        
+        is_paused_ = false;
+    }
+    catch (const std::exception& e) {
+        last_error_ = std::string("Exception in stop(): ") + e.what();
         stream_ = nullptr;
     }
 }
-
 void ControlledAudioStream::pause() {
     is_paused_ = true;
 }
@@ -196,59 +313,26 @@ bool ControlledAudioStream::is_active() const {
     return stream_ && Pa_IsStreamActive(stream_) == 1;
 }
 
+// Enhanced method to get the next audio chunk with better latency
 std::optional<AudioChunk> ControlledAudioStream::get_next_chunk(int timeout_ms) {
     if (!is_active() || is_paused_) {
         return std::nullopt;
     }
     
     try {
-        // Check if we have enough data in the buffer
-        std::unique_lock<std::mutex> lock(callback_context_->buffer_mutex);
-        
-        // Wait for enough data with timeout if needed
-        if (callback_context_->buffer_pos < frames_per_buffer_) {
-            if (timeout_ms <= 0) {
-                return std::nullopt;
-            }
-            
-            // Wait with polling approach (compatible with existing structure)
-            auto start_time = std::chrono::steady_clock::now();
-            while (callback_context_->buffer_pos < frames_per_buffer_) {
-                // Release lock while waiting to allow the audio callback to run
-                lock.unlock();
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                lock.lock();
-                
-                // Check if timeout occurred
-                auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - start_time).count();
-                if (elapsed_ms >= timeout_ms) {
-                    return std::nullopt;
-                }
-                
-                // Check if stream is still active
-                if (!is_active() || is_paused_) {
-                    return std::nullopt;
-                }
-            }
+        // Wait for enough data with timeout
+        if (!callback_context_->wait_for_data(frames_per_buffer_, timeout_ms)) {
+            return std::nullopt;
         }
         
-        // We have enough data, create a chunk
+        // Create a new chunk to hold the data
         auto chunk = std::make_optional<AudioChunk>(frames_per_buffer_);
         
-        // Copy data from the buffer to the chunk
-        std::memcpy(chunk->data(), callback_context_->buffer.data(), frames_per_buffer_ * sizeof(float));
+        // Read data from the circular buffer
+        size_t bytes_read = callback_context_->read_data(chunk->data(), frames_per_buffer_);
         
-        // Remove the copied data from the buffer
-        if (callback_context_->buffer_pos > frames_per_buffer_) {
-            // Shift remaining data to the beginning of the buffer
-            std::memmove(callback_context_->buffer.data(), 
-                        callback_context_->buffer.data() + frames_per_buffer_,
-                        (callback_context_->buffer_pos - frames_per_buffer_) * sizeof(float));
-            callback_context_->buffer_pos -= frames_per_buffer_;
-        } else {
-            // Buffer is empty now
-            callback_context_->buffer_pos = 0;
+        if (bytes_read != frames_per_buffer_) {
+            return std::nullopt;
         }
         
         return chunk;
@@ -256,130 +340,6 @@ std::optional<AudioChunk> ControlledAudioStream::get_next_chunk(int timeout_ms) 
     catch (const std::exception& e) {
         last_error_ = std::string("Exception in get_next_chunk(): ") + e.what();
         return std::nullopt;
-    }
-    catch (...) {
-        last_error_ = "Unknown exception in get_next_chunk()";
-        return std::nullopt;
-    }
-}
-
-// Improved audio callback function with better buffer management
-int ControlledAudioStream::audio_callback(
-    const void* input_buffer,
-    void* output_buffer,
-    unsigned long frames_per_buffer,
-    const PaStreamCallbackTimeInfo* time_info,
-    PaStreamCallbackFlags status_flags,
-    void* user_data
-) {
-    // Cast the user data to our context type
-    AudioCallbackContext* context = static_cast<AudioCallbackContext*>(user_data);
-    
-    if (!context || context->is_paused) {
-        return paContinue;
-    }
-    
-    // Check for stream overflow or underflow
-    if (status_flags & paInputOverflow) {
-        // Input overflow occurred - data was lost
-        // We can't handle this directly from the callback, just continue
-    }
-    
-    // Lock the buffer mutex
-    std::lock_guard<std::mutex> lock(context->buffer_mutex);
-    
-    // Get the input buffer
-    const float* in = static_cast<const float*>(input_buffer);
-    
-    if (in) {
-        // Calculate how much space we need
-        size_t numSamples = frames_per_buffer;
-        
-        // Limit the maximum buffer size to prevent excessive memory usage
-        const size_t MAX_BUFFER_SIZE = 100 * context->frames_per_buffer;  // ~5 seconds at 16KHz
-        
-        if (context->buffer_pos + numSamples > MAX_BUFFER_SIZE) {
-            // Buffer would overflow, discard oldest data
-            size_t discard_samples = context->buffer_pos + numSamples - MAX_BUFFER_SIZE;
-            if (discard_samples < context->buffer_pos) {
-                // Shift buffer to discard oldest samples
-                std::memmove(context->buffer.data(),
-                           context->buffer.data() + discard_samples,
-                           (context->buffer_pos - discard_samples) * sizeof(float));
-                context->buffer_pos -= discard_samples;
-            } else {
-                // Discard all existing data
-                context->buffer_pos = 0;
-            }
-        }
-        
-        try {
-            // Make sure the buffer is big enough
-            if (context->buffer.size() < context->buffer_pos + numSamples) {
-                context->buffer.resize(context->buffer_pos + numSamples);
-            }
-            
-            // Copy the data
-            std::memcpy(context->buffer.data() + context->buffer_pos, in, numSamples * sizeof(float));
-            
-            // Update buffer position
-            context->buffer_pos += numSamples;
-        }
-        catch (const std::exception&) {
-            // Can't safely handle exceptions here or set error state
-            // Just reset the buffer position to prevent memory corruption
-            context->buffer_pos = 0;
-        }
-    }
-    
-    return paContinue;
-}
-
-// Improved stop method with better resource cleanup
-void ControlledAudioStream::stop() {
-    try {
-        if (stream_) {
-            // Stop the stream if it's active
-            if (Pa_IsStreamActive(stream_) == 1) {
-                PaError err = Pa_StopStream(stream_);
-                if (err != paNoError) {
-                    last_error_ = std::string("Failed to stop stream: ") + Pa_GetErrorText(err);
-                    // Continue with cleanup anyway
-                }
-            }
-            
-            // Close the stream
-            PaError err = Pa_CloseStream(stream_);
-            if (err != paNoError) {
-                last_error_ = std::string("Failed to close stream: ") + Pa_GetErrorText(err);
-                // Continue with cleanup anyway
-            }
-            
-            stream_ = nullptr;
-        }
-        
-        // Reset buffer state
-        if (callback_context_) {
-            std::lock_guard<std::mutex> lock(callback_context_->buffer_mutex);
-            callback_context_->buffer_pos = 0;
-            callback_context_->is_paused = false;
-            
-            // Optionally shrink the buffer to reduce memory usage
-            if (callback_context_->buffer.capacity() > 10 * frames_per_buffer_) {
-                std::vector<float> new_buffer(frames_per_buffer_);
-                callback_context_->buffer.swap(new_buffer);
-            }
-        }
-    }
-    catch (const std::exception& e) {
-        last_error_ = std::string("Exception in stop(): ") + e.what();
-        // Continue with minimal cleanup
-        stream_ = nullptr;
-    }
-    catch (...) {
-        last_error_ = "Unknown exception in stop()";
-        // Continue with minimal cleanup
-        stream_ = nullptr;
     }
 }
 
@@ -477,6 +437,7 @@ bool ControlledAudioStream::check_device_compatibility(int device_id, int sample
     return (err == paFormatIsSupported);
 }
 
+// Improved audio callback function for PortAudio
 int ControlledAudioStream::audio_callback(
     const void* input_buffer,
     void* output_buffer,
@@ -492,26 +453,12 @@ int ControlledAudioStream::audio_callback(
         return paContinue;
     }
     
-    // Lock the buffer mutex
-    std::lock_guard<std::mutex> lock(context->buffer_mutex);
-    
     // Get the input buffer
     const float* in = static_cast<const float*>(input_buffer);
     
     if (in) {
-        // Calculate how much space we need
-        size_t numSamples = frames_per_buffer;
-        
-        // Make sure the buffer is big enough
-        if (context->buffer.size() < context->buffer_pos + numSamples) {
-            context->buffer.resize(context->buffer_pos + numSamples);
-        }
-        
-        // Copy the data
-        std::memcpy(context->buffer.data() + context->buffer_pos, in, numSamples * sizeof(float));
-        
-        // Update buffer position
-        context->buffer_pos += numSamples;
+        // Write data to the circular buffer
+        context->write_data(in, frames_per_buffer);
     }
     
     return paContinue;

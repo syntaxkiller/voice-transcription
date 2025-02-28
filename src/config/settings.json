@@ -5,6 +5,7 @@
     "hangover_timeout_ms": 300,
     "sample_rate": 16000,
     "frames_per_buffer": 320,
+    "use_noise_filtering": true,
     "noise_threshold": 0.05
   },
   "transcription": {
@@ -12,6 +13,10 @@
     "model_path": "models/vosk/vosk-model-en-us-0.22",
     "keypress_delay_ms": 20,
     "keypress_rate_limit_cps": 100
+  },
+  "error_handling": {
+    "auto_recovery": true,
+    "max_recovery_attempts": 3
   },
   "shortcut": {
     "modifiers": ["Ctrl", "Shift"],
@@ -37,6 +42,13 @@
       { "phrase": "control enter", "action": "{CTRL+ENTER}" },
       { "phrase": "all caps", "action": "{CAPSLOCK}" },
       { "phrase": "caps lock", "action": "{CAPSLOCK}" }
-    ]
+    ],
+    "capitalization_mode": "auto",
+    "smart_punctuation": true,
+    "command_aliases": {
+        "period": ["full stop", "dot"],
+        "exclamation point": ["exclamation mark"],
+        // Add more aliases as needed
+    }
   }
 }

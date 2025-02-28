@@ -10,6 +10,7 @@
 #include <mutex>
 #include <atomic>
 #include <future>
+#include <deque>
 
 namespace voice_transcription {
 
@@ -21,6 +22,50 @@ struct TranscriptionResult {
     double confidence;            // Confidence score (0.0 to 1.0)
     int64_t timestamp_ms;         // Timestamp of when the transcription was generated
 };
+
+class NoiseFilter;
+
+void VoskTranscriber::enable_noise_filtering(bool enable) {
+    use_noise_filtering_ = enable;
+}
+
+bool VoskTranscriber::is_noise_filtering_enabled() const {
+    return use_noise_filtering_;
+}
+
+void VoskTranscriber::calibrate_noise_filter(const AudioChunk& silence_chunk) {
+    if (!noise_filter_) {
+        noise_filter_ = std::make_unique<NoiseFilter>(0.05f, 10);
+    }
+    noise_filter_->calibrate(silence_chunk);
+}
+
+TranscriptionResult VoskTranscriber::transcribe_with_noise_filtering(
+    std::unique_ptr<AudioChunk> chunk, bool is_speech) {
+    
+    // Initialize noise filter if needed
+    if (!noise_filter_ && use_noise_filtering_) {
+        noise_filter_ = std::make_unique<NoiseFilter>(0.05f, 10);
+    }
+    
+    // Make a copy of the chunk for noise filtering
+    auto filtered_chunk = std::make_unique<AudioChunk>(chunk->size());
+    std::memcpy(filtered_chunk->data(), chunk->data(), chunk->size() * sizeof(float));
+    
+    // Apply noise filtering if enabled
+    if (noise_filter_ && use_noise_filtering_) {
+        if (!is_speech) {
+            // Use silence to auto-calibrate the filter
+            noise_filter_->auto_calibrate(*filtered_chunk, false);
+        }
+        
+        // Apply the filter to the chunk
+        noise_filter_->filter(*filtered_chunk);
+    }
+    
+    // Use the filtered chunk for transcription
+    return transcribe_with_vad(std::move(filtered_chunk), is_speech);
+}
 
 // Voice activity detection (VAD) handler
 class VADHandler {
@@ -49,6 +94,12 @@ public:
     VoskTranscriber(const std::string& model_path, float sample_rate);
     ~VoskTranscriber();
 
+    void enable_noise_filtering(bool enable);
+    bool is_noise_filtering_enabled() const;
+    void calibrate_noise_filter(const AudioChunk& silence_chunk);
+    TranscriptionResult transcribe_with_noise_filtering(
+        std::unique_ptr<AudioChunk> chunk, bool is_speech);
+
     // No copy operations
     VoskTranscriber(const VoskTranscriber&) = delete;
     VoskTranscriber& operator=(const VoskTranscriber&) = delete;
@@ -74,7 +125,15 @@ public:
     bool is_loading() const;
     float get_loading_progress() const;
 
+    void VoskTranscriber::enable_noise_filtering(bool enable) {
+    use_noise_filtering_ = enable;
+}
+
 private:
+    // Noise filtering
+    std::unique_ptr<NoiseFilter> noise_filter_;
+    bool use_noise_filtering_ = false;
+    
     // Parse json result to TranscriptionResult
     TranscriptionResult parse_result(const std::string& json_result);
     

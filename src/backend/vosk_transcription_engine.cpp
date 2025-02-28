@@ -7,6 +7,153 @@
 
 namespace voice_transcription {
 
+// Class for simple noise filtering
+class NoiseFilter {
+public:
+    NoiseFilter(float threshold = 0.05f, int window_size = 10)
+        : noise_threshold_(threshold), window_size_(window_size) {
+        noise_floor_ = 0.0f;
+        calibrated_ = false;
+    }
+    
+    // Process an audio chunk to remove background noise
+    void filter(AudioChunk& chunk) {
+        if (!chunk.data() || chunk.size() == 0) {
+            return;
+        }
+        
+        // Calculate current frame energy
+        float frame_energy = calculate_energy(chunk);
+        
+        // Update noise floor estimate during silence periods
+        update_noise_floor(frame_energy);
+        
+        // Apply noise gate if energy is below threshold
+        if (frame_energy < noise_floor_ * 1.5f) {
+            // Apply soft noise gate (reduce amplitude rather than silence completely)
+            float reduction_factor = std::min(1.0f, frame_energy / (noise_floor_ * 1.5f));
+            reduction_factor = std::pow(reduction_factor, 2.0f); // Squared for more aggressive reduction
+            
+            // Apply reduction
+            for (size_t i = 0; i < chunk.size(); i++) {
+                chunk.data()[i] *= reduction_factor;
+            }
+        }
+        
+        // Apply spectral subtraction (simplified)
+        if (calibrated_) {
+            // Subtract estimated noise floor from each sample
+            for (size_t i = 0; i < chunk.size(); i++) {
+                float sample = chunk.data()[i];
+                float sign = sample >= 0 ? 1.0f : -1.0f;
+                float abs_sample = std::abs(sample);
+                
+                // Subtract noise floor (with flooring to avoid negative values)
+                float filtered = sign * std::max(0.0f, abs_sample - noise_floor_ * 0.5f);
+                
+                // Apply soft-decision filter
+                float gain = abs_sample < noise_floor_ ? 0.1f : 1.0f;
+                chunk.data()[i] = filtered * gain;
+            }
+        }
+    }
+    
+    // Calibrate the noise filter with background noise
+    void calibrate(const AudioChunk& chunk) {
+        if (!chunk.data() || chunk.size() == 0) {
+            return;
+        }
+        
+        // Calculate energy of the calibration frame
+        float frame_energy = calculate_energy(chunk);
+        
+        // Initialize noise floor with this energy
+        noise_floor_ = frame_energy;
+        noise_energy_history_.clear();
+        calibrated_ = true;
+    }
+    
+    // Auto-calibrate the noise filter with running energy estimates
+    void auto_calibrate(const AudioChunk& chunk, bool is_speech) {
+        if (!chunk.data() || chunk.size() == 0) {
+            return;
+        }
+        
+        // If this is silence (not speech), use it to calibrate
+        if (!is_speech) {
+            float frame_energy = calculate_energy(chunk);
+            
+            // Add to history
+            noise_energy_history_.push_back(frame_energy);
+            if (noise_energy_history_.size() > window_size_) {
+                noise_energy_history_.pop_front();
+            }
+            
+            // Update noise floor with average of recent silence frames
+            if (noise_energy_history_.size() >= 3) {
+                float avg_energy = 0.0f;
+                for (float e : noise_energy_history_) {
+                    avg_energy += e;
+                }
+                avg_energy /= noise_energy_history_.size();
+                
+                // Smooth transition for noise floor updates
+                if (!calibrated_) {
+                    noise_floor_ = avg_energy;
+                    calibrated_ = true;
+                } else {
+                    noise_floor_ = 0.9f * noise_floor_ + 0.1f * avg_energy;
+                }
+            }
+        }
+    }
+    
+    // Check if the filter is calibrated
+    bool is_calibrated() const {
+        return calibrated_;
+    }
+    
+    // Get the current noise floor
+    float get_noise_floor() const {
+        return noise_floor_;
+    }
+    
+    // Set the noise threshold directly
+    void set_noise_threshold(float threshold) {
+        noise_threshold_ = threshold;
+    }
+    
+private:
+    // Calculate energy of a frame
+    float calculate_energy(const AudioChunk& chunk) const {
+        float energy = 0.0f;
+        for (size_t i = 0; i < chunk.size(); i++) {
+            energy += chunk.data()[i] * chunk.data()[i];
+        }
+        return energy / chunk.size();
+    }
+    
+    // Update noise floor estimate
+    void update_noise_floor(float frame_energy) {
+        // If energy is very low, it's likely silence - use it to update noise floor
+        if (!calibrated_ || frame_energy < noise_floor_ * 1.2f) {
+            if (!calibrated_) {
+                noise_floor_ = frame_energy;
+                calibrated_ = true;
+            } else {
+                // Slowly adapt noise floor (90% old, 10% new)
+                noise_floor_ = 0.95f * noise_floor_ + 0.05f * frame_energy;
+            }
+        }
+    }
+    
+    float noise_threshold_;
+    float noise_floor_;
+    bool calibrated_;
+    int window_size_;
+    std::deque<float> noise_energy_history_;
+};
+
 // Add these new members to the VoskTranscriber class in vosk_transcription_engine.h
 /*
 private:

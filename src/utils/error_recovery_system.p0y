@@ -1,0 +1,424 @@
+#!/usr/bin/env python3
+import sys
+import os
+import traceback
+import time
+import threading
+from enum import Enum, auto
+from pathlib import Path
+
+# Import logger
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.logger import setup_logger
+
+class ErrorCategory(Enum):
+    """Enumeration of error categories"""
+    AUDIO_DEVICE = auto()
+    TRANSCRIPTION = auto()
+    SHORTCUT = auto()
+    OUTPUT = auto()
+    CONFIG = auto()
+    GENERAL = auto()
+
+class ErrorSeverity(Enum):
+    """Enumeration of error severity levels"""
+    INFO = auto()      # Informational message, not an error
+    WARNING = auto()   # Non-critical issue
+    ERROR = auto()     # Significant error that affects functionality
+    CRITICAL = auto()  # Critical error that prevents operation
+
+class RecoveryStrategy:
+    """Abstract class for error recovery strategies"""
+    def __init__(self, max_attempts=3, retry_delay_ms=500):
+        self.max_attempts = max_attempts
+        self.retry_delay_ms = retry_delay_ms
+        self.attempt_count = 0
+        
+    def attempt_recovery(self, error_context):
+        """Attempt to recover from an error"""
+        if self.attempt_count >= self.max_attempts:
+            return False
+            
+        self.attempt_count += 1
+        time.sleep(self.retry_delay_ms / 1000.0)
+        return self._do_recovery(error_context)
+        
+    def _do_recovery(self, error_context):
+        """Implement this method in subclasses to perform actual recovery"""
+        raise NotImplementedError("Recovery strategy not implemented")
+        
+    def reset(self):
+        """Reset attempt counter"""
+        self.attempt_count = 0
+
+class AudioDeviceRecoveryStrategy(RecoveryStrategy):
+    """Recovery strategy for audio device errors"""
+    def __init__(self, controller, max_attempts=3, retry_delay_ms=500):
+        super().__init__(max_attempts, retry_delay_ms)
+        self.controller = controller
+        
+    def _do_recovery(self, error_context):
+        error_code = error_context.get("code", "")
+        
+        if error_code == "DEVICE_CHANGE":
+            # Try to switch to the default device
+            try:
+                devices = self.controller.enumerate_devices()
+                default_device = next((d for d in devices if d.is_default), None)
+                
+                if default_device:
+                    # Try to restart with the default device
+                    return self.controller.start_transcription(default_device.id)
+            except Exception as e:
+                # Recovery failed
+                return False
+                
+        elif error_code == "STREAM_START_ERROR":
+            # Try to restart the stream with a different configuration
+            try:
+                device_id = error_context.get("device_id", -1)
+                if device_id >= 0:
+                    # Use a different frames_per_buffer setting
+                    original_frames = self.controller.config["audio"]["frames_per_buffer"]
+                    self.controller.config["audio"]["frames_per_buffer"] = 640  # Try a larger buffer
+                    success = self.controller.start_transcription(device_id)
+                    
+                    if not success:
+                        # Try an even larger buffer
+                        self.controller.config["audio"]["frames_per_buffer"] = 1024
+                        success = self.controller.start_transcription(device_id)
+                    
+                    # Restore original setting if successful
+                    if success:
+                        self.controller.config["audio"]["frames_per_buffer"] = original_frames
+                        
+                    return success
+            except Exception as e:
+                # Recovery failed
+                return False
+                
+        return False
+
+class TranscriptionRecoveryStrategy(RecoveryStrategy):
+    """Recovery strategy for transcription errors"""
+    def __init__(self, controller, max_attempts=2, retry_delay_ms=1000):
+        super().__init__(max_attempts, retry_delay_ms)
+        self.controller = controller
+        
+    def _do_recovery(self, error_context):
+        error_code = error_context.get("code", "")
+        
+        if error_code == "MODEL_LOAD_ERROR":
+            # Try to use a different model path
+            try:
+                # Check if alternative model exists
+                base_path = Path(__file__).parents[2]
+                current_model = self.controller.config["transcription"]["model_path"]
+                
+                # Try alternative model paths
+                alternatives = [
+                    "models/vosk/vosk-model-en-us-0.21",
+                    "models/vosk/vosk-model-small-en-us-0.15"
+                ]
+                
+                for alt_model in alternatives:
+                    alt_path = base_path / alt_model
+                    if alt_path.exists() and str(alt_path) != current_model:
+                        # Try to load alternative model
+                        self.controller.config["transcription"]["model_path"] = str(alt_path)
+                        
+                        # Initialize transcriber with new model
+                        sample_rate = self.controller.config["audio"]["sample_rate"]
+                        self.controller.transcriber = None  # Clear old transcriber
+                        self.controller.transcriber = self.controller.backend.VoskTranscriber(
+                            str(alt_path), sample_rate
+                        )
+                        
+                        return self.controller.transcriber is not None
+            except Exception as e:
+                # Recovery failed
+                return False
+                
+        elif error_code == "TRANSCRIPTION_ERROR":
+            # Try to reset the transcriber
+            try:
+                if self.controller.transcriber:
+                    self.controller.transcriber.reset()
+                    return True
+            except Exception as e:
+                # Recovery failed
+                return False
+                
+        return False
+
+class OutputRecoveryStrategy(RecoveryStrategy):
+    """Recovery strategy for output errors"""
+    def __init__(self, controller, max_attempts=2, retry_delay_ms=500):
+        super().__init__(max_attempts, retry_delay_ms)
+        self.controller = controller
+        
+    def _do_recovery(self, error_context):
+        error_code = error_context.get("code", "")
+        
+        if error_code == "OUTPUT_ERROR":
+            # Switch to alternative output method
+            try:
+                current_method = self.controller.config["output"]["method"]
+                
+                if current_method == "simulated_keypresses":
+                    # Switch to clipboard output
+                    self.controller.config["output"]["method"] = "clipboard"
+                    self.controller.config["output"]["clipboard_output"] = True
+                    return True
+                else:
+                    # Try to reinitialize keyboard simulator
+                    self.controller.keyboard_simulator = self.controller.backend.KeyboardSimulator()
+                    self.controller.config["output"]["method"] = "simulated_keypresses"
+                    self.controller.config["output"]["clipboard_output"] = False
+                    return self.controller.keyboard_simulator is not None
+            except Exception as e:
+                # Recovery failed
+                return False
+                
+        return False
+
+class ErrorRecoveryManager:
+    """Manager for error recovery strategies"""
+    def __init__(self, controller):
+        self.logger = setup_logger("error_recovery")
+        self.controller = controller
+        self.recovery_strategies = {
+            ErrorCategory.AUDIO_DEVICE: AudioDeviceRecoveryStrategy(controller),
+            ErrorCategory.TRANSCRIPTION: TranscriptionRecoveryStrategy(controller),
+            ErrorCategory.OUTPUT: OutputRecoveryStrategy(controller),
+            ErrorCategory.SHORTCUT: RecoveryStrategy(),
+            ErrorCategory.CONFIG: RecoveryStrategy(),
+            ErrorCategory.GENERAL: RecoveryStrategy(max_attempts=1)  # General errors get only one attempt
+        }
+        
+    def handle_error(self, category, code, message, exception=None, context=None):
+        """Handle an error and attempt recovery"""
+        # Log the error
+        self.logger.error(f"Error: {category.name} - {code}: {message}")
+        
+        if exception:
+            self.logger.error(f"Exception: {exception}")
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            
+        if context:
+            self.logger.error(f"Context: {context}")
+            
+        # Create error context
+        error_context = {
+            "category": category,
+            "code": code,
+            "message": message,
+            "exception": exception,
+            "context": context or {}
+        }
+        
+        # Determine severity
+        severity = self._determine_severity(category, code)
+        
+        # For non-critical errors, attempt recovery in a background thread
+        if severity != ErrorSeverity.CRITICAL:
+            recovery_thread = threading.Thread(
+                target=self._attempt_recovery,
+                args=(category, error_context),
+                daemon=True
+            )
+            recovery_thread.start()
+            
+            # For WARNING level, we can continue while recovery happens in background
+            if severity == ErrorSeverity.WARNING:
+                return {
+                    "category": category.name,
+                    "code": code,
+                    "message": message,
+                    "severity": severity.name,
+                    "recovery_attempted": True,
+                    "recovery_success": None  # Unknown yet
+                }
+        
+        # For CRITICAL or ERROR level, attempt recovery synchronously
+        success = self._attempt_recovery(category, error_context)
+        
+        return {
+            "category": category.name,
+            "code": code,
+            "message": message,
+            "severity": severity.name,
+            "recovery_attempted": True,
+            "recovery_success": success
+        }
+    
+    def _determine_severity(self, category, code):
+        """Determine the severity of an error"""
+        # Audio device errors
+        if category == ErrorCategory.AUDIO_DEVICE:
+            if code == "DEVICE_CHANGE":
+                return ErrorSeverity.WARNING
+            elif code == "STREAM_START_ERROR":
+                return ErrorSeverity.ERROR
+            elif code == "DEVICE_NOT_FOUND":
+                return ErrorSeverity.ERROR
+            elif code == "INCOMPATIBLE_SAMPLE_RATE":
+                return ErrorSeverity.ERROR
+                
+        # Transcription errors
+        elif category == ErrorCategory.TRANSCRIPTION:
+            if code == "MODEL_LOAD_ERROR":
+                return ErrorSeverity.ERROR
+            elif code == "TRANSCRIPTION_ERROR":
+                return ErrorSeverity.WARNING
+            elif code == "MODEL_LOADING":
+                return ErrorSeverity.INFO
+            elif code == "MODEL_LOADED":
+                return ErrorSeverity.INFO
+                
+        # Shortcut errors
+        elif category == ErrorCategory.SHORTCUT:
+            if code == "REGISTRATION_ERROR":
+                return ErrorSeverity.ERROR
+            elif code == "INVALID_SHORTCUT":
+                return ErrorSeverity.WARNING
+                
+        # Output errors
+        elif category == ErrorCategory.OUTPUT:
+            if code == "OUTPUT_ERROR":
+                return ErrorSeverity.WARNING
+                
+        # Config errors
+        elif category == ErrorCategory.CONFIG:
+            if code == "CONFIG_LOAD_ERROR":
+                return ErrorSeverity.WARNING
+            elif code == "CONFIG_SAVE_ERROR":
+                return ErrorSeverity.WARNING
+                
+        # Default to ERROR severity
+        return ErrorSeverity.ERROR
+    
+    def _attempt_recovery(self, category, error_context):
+        """Attempt to recover from an error"""
+        strategy = self.recovery_strategies.get(category)
+        
+        if not strategy:
+            self.logger.warning(f"No recovery strategy for {category.name}")
+            return False
+            
+        try:
+            success = strategy.attempt_recovery(error_context)
+            
+            if success:
+                self.logger.info(f"Recovery successful for {category.name} - {error_context['code']}")
+                strategy.reset()
+                return True
+            else:
+                if strategy.attempt_count >= strategy.max_attempts:
+                    self.logger.error(f"Recovery failed after {strategy.attempt_count} attempts for {category.name} - {error_context['code']}")
+                    strategy.reset()
+                else:
+                    self.logger.warning(f"Recovery attempt {strategy.attempt_count} failed for {category.name} - {error_context['code']}")
+                return False
+        except Exception as e:
+            self.logger.error(f"Exception during recovery: {str(e)}")
+            self.logger.error(traceback.format_exc())
+            strategy.reset()
+            return False
+            
+    def get_user_message(self, error_details):
+        """Get a user-friendly error message"""
+        category = error_details.get("category", "GENERAL")
+        code = error_details.get("code", "UNKNOWN")
+        message = error_details.get("message", "An unknown error occurred")
+        severity = error_details.get("severity", "ERROR")
+        recovery_attempted = error_details.get("recovery_attempted", False)
+        recovery_success = error_details.get("recovery_success", False)
+        
+        # For INFO severity, just return the message
+        if severity == "INFO":
+            return message
+            
+        # For successful recovery, provide a positive message
+        if recovery_attempted and recovery_success:
+            return f"{message} (Automatically resolved)"
+            
+        # Generate user-friendly message based on category and code
+        if category == "AUDIO_DEVICE":
+            if code == "DEVICE_CHANGE":
+                return "Audio device changed or disconnected. Please check your microphone connection."
+            elif code == "STREAM_START_ERROR":
+                return "Failed to start audio stream. Please try a different microphone."
+            elif code == "DEVICE_NOT_FOUND":
+                return "Audio device not found. Please connect a microphone."
+            elif code == "INCOMPATIBLE_SAMPLE_RATE":
+                return "This microphone doesn't support the required sample rate (16000 Hz)."
+        elif category == "TRANSCRIPTION":
+            if code == "MODEL_LOAD_ERROR":
+                return "Failed to load speech recognition model. Please check your installation."
+            elif code == "TRANSCRIPTION_ERROR":
+                return "Error during speech recognition. Please try again."
+        elif category == "SHORTCUT":
+            if code == "REGISTRATION_ERROR":
+                return "Failed to register keyboard shortcut. Please try a different key combination."
+            elif code == "INVALID_SHORTCUT":
+                return "Invalid shortcut. Must include at least one modifier key (Ctrl, Alt, Shift, Win)."
+        elif category == "OUTPUT":
+            if code == "OUTPUT_ERROR":
+                return "Error sending text output. Please check target application."
+        elif category == "CONFIG":
+            if code == "CONFIG_LOAD_ERROR":
+                return "Failed to load configuration. Default settings will be used."
+            elif code == "CONFIG_SAVE_ERROR":
+                return "Failed to save configuration. Your settings may not persist."
+                
+        # Default message
+        return message
+    
+    def get_recovery_steps(self, error_details):
+        """Get suggested recovery steps for an error"""
+        category = error_details.get("category", "GENERAL")
+        code = error_details.get("code", "UNKNOWN")
+        
+        # Generate recovery steps based on category and code
+        if category == "AUDIO_DEVICE":
+            if code == "DEVICE_CHANGE":
+                return [
+                    "Reconnect your microphone",
+                    "Select a different microphone from the dropdown",
+                    "Click the Refresh button to rescan for devices"
+                ]
+            elif code == "STREAM_START_ERROR":
+                return [
+                    "Select a different microphone",
+                    "Restart the application",
+                    "Check if another application is using the microphone"
+                ]
+        elif category == "TRANSCRIPTION":
+            if code == "MODEL_LOAD_ERROR":
+                return [
+                    "Restart the application",
+                    "Reinstall the application",
+                    "Check that the model files are in the correct location"
+                ]
+        elif category == "SHORTCUT":
+            if code == "REGISTRATION_ERROR":
+                return [
+                    "Try a different key combination",
+                    "Check if another application is using the same shortcut",
+                    "Restart the application"
+                ]
+        elif category == "OUTPUT":
+            if code == "OUTPUT_ERROR":
+                return [
+                    "Check if the target application is still active",
+                    "Try using clipboard output instead (in Options)",
+                    "Restart the target application"
+                ]
+                
+        # Default recovery steps
+        return [
+            "Restart the application",
+            "Check the log file for more details",
+            "Contact support if the problem persists"
+        ]

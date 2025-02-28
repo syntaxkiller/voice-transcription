@@ -61,19 +61,28 @@ struct AudioCallbackContext {
     int frames_per_buffer = 0;
     std::vector<float> buffer;
     size_t buffer_pos = 0;
+    size_t read_pos = 0;  // Track read position separately for ring buffer
     std::mutex buffer_mutex;
+    std::condition_variable data_ready_cv;
     bool is_paused = false;
+    bool buffer_overflow = false;
     
-    // Define move constructor and assignment
-    AudioCallbackContext() = default;
+    // Circular buffer size - ~2 seconds at 16KHz
+    const size_t MAX_BUFFER_SIZE = 100 * 320;  
     
-    // Delete copy constructor and assignment
-    AudioCallbackContext(const AudioCallbackContext&) = delete;
-    AudioCallbackContext& operator=(const AudioCallbackContext&) = delete;
+    AudioCallbackContext() : buffer(MAX_BUFFER_SIZE, 0.0f) {}
     
-    // Define move operations
-    AudioCallbackContext(AudioCallbackContext&&) = default;
-    AudioCallbackContext& operator=(AudioCallbackContext&&) = default;
+    // Write data to the circular buffer
+    void write_data(const float* data, size_t length);
+    
+    // Read data from the circular buffer
+    size_t read_data(float* output, size_t length);
+    
+    // Wait for data with timeout
+    bool wait_for_data(size_t min_samples, int timeout_ms);
+    
+    // Clear buffer
+    void clear();
 };
 
 // PortAudio stream wrapper with controlled buffering

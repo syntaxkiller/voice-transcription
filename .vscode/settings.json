@@ -88,6 +88,9 @@
         "codecvt": "cpp",
         "hash_map": "cpp",
         "hash_set": "cpp",
-        "stack": "cpp"
+        "stack": "cpp",
+        "coroutine": "cpp",
+        "resumable": "cpp",
+        "future": "cpp"
     }
 }

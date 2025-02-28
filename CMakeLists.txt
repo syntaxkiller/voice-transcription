@@ -174,6 +174,8 @@ if(VOSK_FOUND)
     target_compile_definitions(voice_transcription_backend PRIVATE USE_REAL_VOSK)
 endif()
 
+target_compile_definitions(voice_transcription_backend PRIVATE HAS_CONDITION_VARIABLE=1)
+
 # Link libraries - ALL target_link_libraries AFTER target definition
 if(PORTAUDIO_LIBRARY)
     target_link_libraries(voice_transcription_backend PRIVATE ${PORTAUDIO_LIBRARY})

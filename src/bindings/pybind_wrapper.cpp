@@ -11,6 +11,14 @@
 namespace py = pybind11;
 using namespace voice_transcription;
 
+// Custom wrapper for the transcribe_with_noise_filtering method
+TranscriptionResult transcribe_with_noise_filtering_wrapper(VoskTranscriber& self, AudioChunk& chunk, bool is_speech) {
+    // Create a copy of the chunk and move it into a unique_ptr
+    auto chunk_copy = std::make_unique<AudioChunk>(chunk.size());
+    std::memcpy(chunk_copy->data(), chunk.data(), chunk.size() * sizeof(float));
+    return self.transcribe_with_noise_filtering(std::move(chunk_copy), is_speech);
+}
+
 // Custom wrapper for the transcribe method to handle unique_ptr
 TranscriptionResult transcribe_wrapper(VoskTranscriber& self, AudioChunk& chunk) {
     // Create a copy of the chunk and move it into a unique_ptr
@@ -93,6 +101,10 @@ PYBIND11_MODULE(voice_transcription_backend, m) {
         .def(py::init<const std::string&, float>())
         .def("transcribe", &transcribe_wrapper)
         .def("transcribe_with_vad", &transcribe_with_vad_wrapper)
+        .def("transcribe_with_noise_filtering", &transcribe_with_noise_filtering_wrapper)
+        .def("enable_noise_filtering", &VoskTranscriber::enable_noise_filtering)
+        .def("is_noise_filtering_enabled", &VoskTranscriber::is_noise_filtering_enabled)
+        .def("calibrate_noise_filter", &VoskTranscriber::calibrate_noise_filter)
         .def("reset", &VoskTranscriber::reset)
         .def("is_loading", &VoskTranscriber::is_loading)
         .def("get_loading_progress", &VoskTranscriber::get_loading_progress)
