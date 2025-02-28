@@ -98,87 +98,60 @@ Development focuses on direct integration with real libraries and APIs for immed
 
 ---
 
-### 3. Transcription Activation & Audio Streaming
-
-#### Shortcut-Activated Transcription
-- **Activation:** A global listener waits for the user-defined shortcut.
-- **Trigger:** When the shortcut is pressed, a Python callback toggles transcription on/off using the `ShortcutListener` class with its `on_hotkey_triggered` callback.
-
-#### Visual Feedback
-- **Indicators:** When transcription is active:
-  - A blinking microphone icon (500ms interval)
-  - A "Transcribing…" label in the GUI  
-  Implemented by the `StatusIndicator` class with `set_transcribing(is_transcribing: bool)`.
-
-#### Window Change Detection
-- **Monitoring:** The active window is monitored via the C++ function `get_foreground_window_title` (exposed to Python).
-- **Notification:** A notification is displayed if the active window changes during transcription, managed by the `WindowMonitor` class (checks every 500ms).
+## 3. Transcription Activation & Audio Streaming
 
 #### Audio Streaming & Processing
 - **Streaming Initialization:** Captures audio from the selected device using PortAudio at 16000 Hz.
   - **Function:** `stream_audio(device_id: int) -> ControlledAudioStream`  
     _(Creates a C++ object from Python)_
 - **C++ Methods (exposed to Python) in `ControlledAudioStream`:**
-  - `start() -> bool`
-  - `stop()`
-  - `pause()`
-  - `resume()`
-  - `is_active() -> bool`
-  - `get_device_id() -> int`
-  - `get_sample_rate() -> int`
-  - `get_frames_per_buffer() -> int`
-  - `get_last_error() -> str`
-  - `get_buffer_size() -> int`
-  - `get_buffer_used() -> int`
-  - `get_next_chunk() -> Optional[AudioChunk]`
-- **Error Handling:** Implements layered fallback strategies for handling audio stream issues, with specific error codes/messages.
+  - `start() -> bool` - Starts audio capture with robust error handling
+  - `stop()` - Stops capture with proper resource cleanup
+  - `pause()` - Temporarily pauses audio capture
+  - `resume()` - Resumes paused capture
+  - `is_active() -> bool` - Checks if capture is active
+  - `get_device_id() -> int` - Gets current device ID
+  - `get_sample_rate() -> int` - Gets current sample rate
+  - `get_frames_per_buffer() -> int` - Gets frame buffer size
+  - `get_last_error() -> str` - Gets last error message
+  - `get_next_chunk() -> Optional[AudioChunk]` - Gets next audio chunk with timeout handling and buffer management
+- **Error Handling:** Implements layered fallback strategies with specific error codes/messages.
+- **Buffer Management:** 
+  - Efficient circular buffer implementation for audio data
+  - Automatic buffer size limits to prevent memory growth
+  - Thread-safe buffer operations with mutex protection
+  - Intelligent buffer overflow handling to maintain streaming quality
 
 #### Voice Activity Detection (VAD)
 - **Implementation:** Uses WebRTC VAD with configurable aggressiveness (default is 2).
   - **C++ Class:** `VADHandler` with:
-    - `is_speech(chunk: AudioChunk) -> bool`
-    - `set_aggressiveness(level: int) -> void`
-    - `get_aggressiveness() -> int`
+    - `is_speech(chunk: AudioChunk) -> bool` - Determines if chunk contains speech
+    - `set_aggressiveness(level: int) -> void` - Sets VAD sensitivity
+    - `get_aggressiveness() -> int` - Gets current VAD sensitivity
 - **Audio Chunking:** Processes audio in 20ms chunks (320 samples at 16000 Hz) using the `AudioChunker` class.
 - **Hangover Timer:** Continues processing briefly after silence (default 300ms) using the `SilenceDetector` class.
 
 #### Speech Recognition
 - **Engine:** Uses the Vosk API for speech recognition.
 - **Model Options:** Configurable Vosk model path.
+- **Background Loading:** Model is loaded asynchronously to keep the UI responsive
+  - Implemented via `std::async` in C++ with progress reporting
+  - Progress monitoring through atomic variables for thread safety
+  - UI feedback during loading process via Python callbacks
 - **Integration:** Through the `VoskTranscriber` class.
   - **Constructor:** `VoskTranscriber(const std::string& model_path, float sample_rate)`
   - **Methods:**
-    - `transcribe(std::unique_ptr<AudioChunk> chunk) -> TranscriptionResult`
-    - `transcribe_with_vad(std::unique_ptr<AudioChunk> chunk, bool is_speech) -> TranscriptionResult`
-    - `reset() -> void`
-    - `is_model_loaded() -> bool`
-    - `get_last_error() -> std::string`
+    - `transcribe(std::unique_ptr<AudioChunk> chunk) -> TranscriptionResult` - Process audio chunk
+    - `transcribe_with_vad(std::unique_ptr<AudioChunk> chunk, bool is_speech) -> TranscriptionResult` - Process with VAD information
+    - `reset() -> void` - Reset the recognizer state
+    - `is_model_loaded() -> bool` - Check if model is ready for use
+    - `is_loading() -> bool` - Check if model is still loading
+    - `get_loading_progress() -> float` - Get loading progress (0.0-1.0)
+    - `get_last_error() -> std::string` - Get error information
 - **Memory Management:** Uses RAII for proper Vosk object management.
-- **GUI Status:** Displays "Offline – Vosk" until the model loads.
-- **Model Loading:** Handled in a background thread via the `ModelLoader` class with progress reporting.
+- **GUI Status:** Displays loading progress in status bar during initialization.
+- **Model Loading:** Handled in a background thread via `std::async` with non-blocking progress reporting.
 - **JSON Processing:** Uses RapidJSON for parsing Vosk output with proper error handling.
-
-#### Audio Processing Function
-- **Function:** `process_audio(audio_stream: ControlledAudioStream) -> TranscriptionResult`  
-  _Runs in a separate thread._
-  - **Returns:** A `TranscriptionResult` object with:
-    - `raw_text (str)`: Transcribed text before processing
-    - `processed_text (str)`: Text after command processing
-    - `is_final (bool)`: Final or partial result indicator
-    - `confidence (float)`: Confidence score (0.0–1.0)
-    - `timestamp_ms (int)`: Timestamp of when the transcription was generated
-- **Error Handling:** Implements layered error strategies with specific error code/message.
-
-#### Threading and Queues
-- **Concurrency:** Audio capture, VAD processing, transcription, and text output run in separate threads.
-  - Coordinated by the `ThreadManager` class.
-- **Audio Queue:** Managed by an internal buffer in `ControlledAudioStream` (with mutex protection) using a `RingBuffer<AudioSample>` class.
-  - **Buffer Size:** Configurable (default 10 seconds of audio, i.e., 160,000 samples at 16000 Hz)
-- **Transcription Queue:** Managed via Python threading and signals with the `TranscriptionQueue` class:
-  - Methods include `enqueue(result: TranscriptionResult)`, `get_next()`, `clear()`, and `is_empty()`.
-- **Thread Management:** Uses Python's `concurrent.futures.ThreadPoolExecutor` for managing threads with proper shutdown.
-- **PyQt Integration:** Uses signals and slots (with custom `QObject`-derived classes) for thread-safe GUI updates.
-- **Shutdown:** Utilizes an atomic flag (`std::atomic<bool>`) to signal thread termination and proper join operations.
 
 ---
 
@@ -235,13 +208,14 @@ Development focuses on direct integration with real libraries and APIs for immed
 
 ---
 
-### 6. Performance and Optimization
+## 6. Performance and Optimization
 
 #### Multi-threading & Asynchronous Processing
 - **Architecture:** Separate threads for audio capture, VAD, transcription, and output processing.
   - Audio capture runs at real-time priority.
   - Processing threads run at normal priority.
-  - The GUI thread remains responsive and isolated.
+  - Background loading operations use `std::async` for non-blocking execution.
+  - The GUI thread remains responsive during intensive operations.
 
 #### Latency Targets
 - **Target Latency:** Achieve 100–300ms latency from the end of speech to text output.
@@ -250,16 +224,21 @@ Development focuses on direct integration with real libraries and APIs for immed
 #### Inter-Language Communication
 - **Integration:** Uses `pybind11` to bridge C++ and Python.
   - Proper bindings with clear ownership transfer semantics.
+  - Background operations expose progress tracking to Python.
 - **Optimization:** Minimizes cross-language calls by passing pointers and batching operations.
 
 #### Resource Management
 - **Audio Chunks:** Processed in fixed-size 20ms chunks (320 samples at 16000 Hz) via the `AudioChunk` class.
+- **Memory Protection:** 
+  - Uses size-limited buffers to prevent memory growth during long sessions.
+  - Implements buffer overflow handling to maintain streaming quality.
+  - Provides proper resource cleanup on stream termination.
 - **Memory Pooling:** Uses a memory pool for audio chunks to reduce allocation overhead.
 - **Buffer Management:** Uses PortAudio and internal buffers with mutexes for thread safety, with proper cleanup on shutdown.
 
 ---
 
-### 7. User Experience & Error Handling
+## 7. User Experience & Error Handling
 
 #### Error Management
 
@@ -274,16 +253,20 @@ Development focuses on direct integration with real libraries and APIs for immed
 - **Logging:** Errors are logged with timestamps and context via the `Logger` class.  
   **Format:** `[TIMESTAMP] [SEVERITY] [COMPONENT] [CODE] Message`
 - **User Messaging:** Clear, non-technical error messages are displayed with recovery instructions using the `ErrorMessageFormatter` class.
+- **Progress Reporting:** Background operations like model loading provide real-time progress updates in the UI.
 
 #### Error Handling Philosophy
 - **Layered Fallback Strategy:** Each operation attempts the most direct approach first, then falls back to increasingly specific alternatives if failures occur.
 - **Graceful Degradation:** When a component fails, the application attempts to continue with limited functionality rather than failing completely.
 - **Clear User Communication:** All errors are reported to users in plain language with actionable guidance.
+- **Non-Blocking Operations:** Time-consuming operations run in background threads with progress reporting.
 - **Recovery Attempts:** For transient errors, the application makes multiple recovery attempts before reporting failure.
 - **Structured Error Hierarchy:** A standardized error code system allows for consistent handling across components.
 
 #### Automatic Recovery
 - **Audio Device Disconnection:** Attempts automatic switching to the default device (max 3 attempts, 500ms apart).
+- **Audio Buffer Management:** Automatically handles buffer overflow conditions without disrupting streaming.
+- **Model Loading Issues:** Provides clear feedback during model loading with fallback mechanisms.
 - **Transient Errors:** Retries up to 3 times before alerting the user, managed by the `ErrorRecoveryManager` class.
 - **Dependency Failures:** Setup process includes multiple fallback options for acquiring and installing dependencies.
 - **Configuration Recovery:** Attempts to restore corrupted configuration from backups or defaults.

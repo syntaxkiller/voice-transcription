@@ -1,175 +1,167 @@
 #include "vosk_transcription_engine.h"
 #include <chrono>
-#include <cstring>
-#include <vector>
+#include <atomic>
+#include <future>
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
 
 namespace voice_transcription {
 
-// VADHandler implementation
-VADHandler::VADHandler(int sample_rate, int frame_duration_ms, int aggressiveness)
-    : sample_rate_(sample_rate), 
-      frame_duration_ms_(frame_duration_ms),
-      aggressiveness_(aggressiveness),
-      vad_handle_(nullptr) {
+// Add these new members to the VoskTranscriber class in vosk_transcription_engine.h
+/*
+private:
+    // Background loading members
+    std::atomic<bool> is_loading_;
+    std::atomic<float> loading_progress_;
+    std::future<bool> loading_future_;
+    std::string model_path_;
     
-    // Initialize WebRTC VAD
-    vad_handle_ = WebRtcVad_Create();
-    if (vad_handle_) {
-        WebRtcVad_Init(vad_handle_);
-        WebRtcVad_set_mode(vad_handle_, aggressiveness_);
-    }
-    
-    // Allocate temporary buffer
-    size_t frame_size = (sample_rate_ * frame_duration_ms_ / 1000);
-    temp_buffer_.resize(frame_size);
-}
+    // Background loading methods
+    bool load_model_background();
+    TranscriptionResult create_empty_result() const;
+*/
 
-VADHandler::~VADHandler() {
-    if (vad_handle_) {
-        WebRtcVad_Free(vad_handle_);
-        vad_handle_ = nullptr;
-    }
-}
-
-bool VADHandler::is_speech(const AudioChunk& chunk) {
-    if (!vad_handle_ || chunk.size() == 0) {
-        return false;
-    }
-    
-    // Convert float samples to int16
-    for (size_t i = 0; i < chunk.size() && i < temp_buffer_.size(); i++) {
-        temp_buffer_[i] = static_cast<int16_t>(chunk.data()[i] * 32767.0f);
-    }
-    
-    // Process with WebRTC VAD
-    int result = WebRtcVad_Process(
-        vad_handle_,
-        sample_rate_,
-        temp_buffer_.data(),
-        temp_buffer_.size()
-    );
-    
-    return result > 0;
-}
-
-void VADHandler::set_aggressiveness(int aggressiveness) {
-    if (aggressiveness < 0 || aggressiveness > 3) {
-        return;
-    }
-    
-    aggressiveness_ = aggressiveness;
-    if (vad_handle_) {
-        WebRtcVad_set_mode(vad_handle_, aggressiveness_);
-    }
-}
-
-// VoskTranscriber implementation
+// Improved constructor with background loading
 VoskTranscriber::VoskTranscriber(const std::string& model_path, float sample_rate)
     : model_(nullptr),
       recognizer_(nullptr),
       sample_rate_(sample_rate),
-      has_speech_started_(false) {
+      has_speech_started_(false),
+      is_loading_(true),
+      loading_progress_(0.0f),
+      model_path_(model_path) {
     
+    // Start loading the model in a background thread
+    loading_future_ = std::async(std::launch::async, 
+                                 &VoskTranscriber::load_model_background, 
+                                 this);
+}
+
+// Background model loading method
+bool VoskTranscriber::load_model_background() {
     try {
-        // Load model
-        model_ = vosk_model_new(model_path.c_str());
+        // Report initial progress
+        loading_progress_ = 0.1f;
         
-        if (model_) {
-            // Create recognizer
-            recognizer_ = vosk_recognizer_new(model_, sample_rate_);
-            
-            if (recognizer_) {
-                // Set recognizer options
-                vosk_recognizer_set_max_alternatives(recognizer_, 1);
-                vosk_recognizer_set_words(recognizer_, 1);
-            } else {
-                last_error_ = "Failed to create recognizer";
+        // Load model (this is the time-consuming operation)
+        loading_progress_ = 0.2f;
+        model_ = vosk_model_new(model_path_.c_str());
+        
+        if (!model_) {
+            last_error_ = "Failed to load model from path: " + model_path_;
+            is_loading_ = false;
+            loading_progress_ = 0.0f;
+            return false;
+        }
+        
+        // Report progress
+        loading_progress_ = 0.7f;
+        
+        // Create recognizer
+        recognizer_ = vosk_recognizer_new(model_, sample_rate_);
+        
+        if (!recognizer_) {
+            last_error_ = "Failed to create recognizer";
+            if (model_) {
+                vosk_model_free(model_);
+                model_ = nullptr;
             }
-        } else {
-            last_error_ = "Failed to load model from path: " + model_path;
+            is_loading_ = false;
+            loading_progress_ = 0.0f;
+            return false;
         }
-    } catch (const std::exception& e) {
-        last_error_ = "Exception during initialization: " + std::string(e.what());
+        
+        // Set recognizer options
+        loading_progress_ = 0.9f;
+        vosk_recognizer_set_max_alternatives(recognizer_, 1);
+        vosk_recognizer_set_words(recognizer_, 1);
+        
+        // Complete loading
+        loading_progress_ = 1.0f;
+        is_loading_ = false;
+        return true;
+    } 
+    catch (const std::exception& e) {
+        last_error_ = "Exception during model loading: " + std::string(e.what());
         if (model_) {
             vosk_model_free(model_);
             model_ = nullptr;
         }
-    } catch (...) {
-        last_error_ = "Unknown exception during initialization";
+        is_loading_ = false;
+        loading_progress_ = 0.0f;
+        return false;
+    }
+    catch (...) {
+        last_error_ = "Unknown exception during model loading";
         if (model_) {
             vosk_model_free(model_);
             model_ = nullptr;
         }
+        is_loading_ = false;
+        loading_progress_ = 0.0f;
+        return false;
     }
 }
 
-VoskTranscriber::~VoskTranscriber() {
-    if (recognizer_) {
-        vosk_recognizer_free(recognizer_);
-        recognizer_ = nullptr;
-    }
-    
-    if (model_) {
-        vosk_model_free(model_);
-        model_ = nullptr;
-    }
-}
-
-VoskTranscriber::VoskTranscriber(VoskTranscriber&& other) noexcept
-    : model_(other.model_),
-      recognizer_(other.recognizer_),
-      sample_rate_(other.sample_rate_),
-      last_error_(std::move(other.last_error_)),
-      has_speech_started_(other.has_speech_started_) {
-    
-    other.model_ = nullptr;
-    other.recognizer_ = nullptr;
-}
-
-VoskTranscriber& VoskTranscriber::operator=(VoskTranscriber&& other) noexcept {
-    if (this != &other) {
-        // Clean up current resources
-        if (recognizer_) {
-            vosk_recognizer_free(recognizer_);
-        }
-        
-        if (model_) {
-            vosk_model_free(model_);
-        }
-        
-        // Move resources
-        model_ = other.model_;
-        recognizer_ = other.recognizer_;
-        sample_rate_ = other.sample_rate_;
-        last_error_ = std::move(other.last_error_);
-        has_speech_started_ = other.has_speech_started_;
-        
-        // Clear the moved object
-        other.model_ = nullptr;
-        other.recognizer_ = nullptr;
-    }
-    
-    return *this;
-}
-
-TranscriptionResult VoskTranscriber::transcribe(std::unique_ptr<AudioChunk> chunk) {
+// Helper method to create empty transcription results while model is loading
+TranscriptionResult VoskTranscriber::create_empty_result() const {
     TranscriptionResult result;
+    result.raw_text = "";
+    result.processed_text = "";
     result.is_final = false;
     result.confidence = 0.0;
     result.timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
+    return result;
+}
+
+// New method to check loading state and get progress
+float VoskTranscriber::get_loading_progress() const {
+    return loading_progress_.load();
+}
+
+bool VoskTranscriber::is_loading() const {
+    return is_loading_.load();
+}
+
+// Modified transcribe method that works with background loading
+TranscriptionResult VoskTranscriber::transcribe(std::unique_ptr<AudioChunk> chunk) {
+    // Check if we're still loading
+    if (is_loading_.load()) {
+        // Check if loading is complete now
+        if (loading_future_.valid() && 
+            loading_future_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+            
+            // Loading completed, get the result
+            bool success = loading_future_.get();
+            if (!success) {
+                // Loading failed, return empty result with error
+                TranscriptionResult result = create_empty_result();
+                result.raw_text = "Model loading failed: " + last_error_;
+                result.processed_text = result.raw_text;
+                return result;
+            }
+        } else {
+            // Still loading, return empty result with progress
+            TranscriptionResult result = create_empty_result();
+            float progress = loading_progress_.load();
+            result.raw_text = "Loading model... " + std::to_string(int(progress * 100)) + "%";
+            result.processed_text = result.raw_text;
+            return result;
+        }
+    }
     
+    // Regular transcription - only run if model is loaded
     if (!recognizer_ || !chunk || chunk->size() == 0) {
+        TranscriptionResult result = create_empty_result();
         result.raw_text = "";
         result.processed_text = "";
         return result;
     }
     
     try {
-        // Lock to prevent concurrent access to recognizer
+        // Proceed with normal transcription as in the original code
         std::lock_guard<std::mutex> lock(recognizer_mutex_);
         
         // Convert float samples to int16 for Vosk
@@ -197,68 +189,81 @@ TranscriptionResult VoskTranscriber::transcribe(std::unique_ptr<AudioChunk> chun
         }
         
         // Parse result
-        result = parse_result(json_result);
+        TranscriptionResult result = parse_result(json_result);
         result.is_final = is_final;
-        
-    } catch (const std::exception& e) {
+        return result;
+    } 
+    catch (const std::exception& e) {
         last_error_ = "Exception during transcription: " + std::string(e.what());
-        result.raw_text = "";
-        result.processed_text = "";
-        result.is_final = false;
-        result.confidence = 0.0;
-    } catch (...) {
+        TranscriptionResult result = create_empty_result();
+        result.raw_text = "Error: " + last_error_;
+        result.processed_text = result.raw_text;
+        return result;
+    } 
+    catch (...) {
         last_error_ = "Unknown exception during transcription";
-        result.raw_text = "";
-        result.processed_text = "";
-        result.is_final = false;
-        result.confidence = 0.0;
+        TranscriptionResult result = create_empty_result();
+        result.raw_text = "Error: " + last_error_;
+        result.processed_text = result.raw_text;
+        return result;
     }
-    
-    return result;
 }
 
-TranscriptionResult VoskTranscriber::transcribe_with_vad(std::unique_ptr<AudioChunk> chunk, bool is_speech) {
-    // Process based on VAD result
-    if (is_speech) {
-        has_speech_started_ = true;
+// Modified is_model_loaded to work with background loading
+bool VoskTranscriber::is_model_loaded() const {
+    // If we're still loading, check if it's done now
+    if (is_loading_.load() && loading_future_.valid()) {
+        // Check if loading is complete without waiting
+        auto status = loading_future_.wait_for(std::chrono::milliseconds(0));
+        if (status == std::future_status::ready) {
+            // It's done, but we don't change any state here - that happens in transcribe()
+            // We just report the current state
+            return model_ != nullptr && recognizer_ != nullptr;
+        } else {
+            // Still loading
+            return false;
+        }
     }
     
-    if (has_speech_started_) {
-        return transcribe(std::move(chunk));
-    }
-    
-    // If no speech detected and hasn't started yet, return empty result
-    TranscriptionResult empty_result;
-    empty_result.raw_text = "";
-    empty_result.processed_text = "";
-    empty_result.is_final = false;
-    empty_result.confidence = 0.0;
-    empty_result.timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()
-    ).count();
-    
-    return empty_result;
+    // Standard check
+    return model_ != nullptr && recognizer_ != nullptr;
 }
 
-void VoskTranscriber::reset() {
-    std::lock_guard<std::mutex> lock(recognizer_mutex_);
+// Enhanced destructor with proper future handling
+VoskTranscriber::~VoskTranscriber() {
+    // Wait for background loading to complete before destroying
+    if (is_loading_.load() && loading_future_.valid()) {
+        try {
+            // Set a reasonable timeout (5 seconds)
+            auto status = loading_future_.wait_for(std::chrono::seconds(5));
+            if (status == std::future_status::timeout) {
+                // Loading is taking too long, we'll need to force quit
+                // This could lead to resource leaks, but we have to prevent hanging
+                return;
+            }
+            
+            // Get the result to prevent any exceptions from being thrown later
+            loading_future_.get();
+        } catch (...) {
+            // Ignore any exceptions during cleanup
+        }
+    }
     
+    // Clean up resources
     if (recognizer_) {
-        vosk_recognizer_reset(recognizer_);
+        vosk_recognizer_free(recognizer_);
+        recognizer_ = nullptr;
     }
     
-    has_speech_started_ = false;
+    if (model_) {
+        vosk_model_free(model_);
+        model_ = nullptr;
+    }
 }
 
+// Improved parse_result method with better error handling
 TranscriptionResult VoskTranscriber::parse_result(const std::string& json_result) {
-    TranscriptionResult result;
-    result.raw_text = "";
-    result.processed_text = "";
-    result.is_final = false;
-    result.confidence = 0.0;
-    result.timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()
-    ).count();
+    TranscriptionResult result = create_empty_result();
     
     try {
         // Parse the JSON using RapidJSON
@@ -316,27 +321,6 @@ TranscriptionResult VoskTranscriber::parse_result(const std::string& json_result
     }
     
     return result;
-}
-
-std::string VoskTranscriber::extract_text_from_json(const std::string& json) {
-    try {
-        // Parse the JSON using RapidJSON
-        rapidjson::Document doc;
-        doc.Parse(json.c_str());
-        
-        // Check for "text" field (for final results)
-        if (doc.HasMember("text") && doc["text"].IsString()) {
-            return doc["text"].GetString();
-        } 
-        // Check for "partial" field (for partial results)
-        else if (doc.HasMember("partial") && doc["partial"].IsString()) {
-            return doc["partial"].GetString();
-        }
-    } catch (...) {
-        // Handle any exceptions
-    }
-    
-    return "";
 }
 
 } // namespace voice_transcription

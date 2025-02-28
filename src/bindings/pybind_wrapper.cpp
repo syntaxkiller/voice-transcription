@@ -94,6 +94,8 @@ PYBIND11_MODULE(voice_transcription_backend, m) {
         .def("transcribe", &transcribe_wrapper)
         .def("transcribe_with_vad", &transcribe_with_vad_wrapper)
         .def("reset", &VoskTranscriber::reset)
+        .def("is_loading", &VoskTranscriber::is_loading)
+        .def("get_loading_progress", &VoskTranscriber::get_loading_progress)
         .def("is_model_loaded", &VoskTranscriber::is_model_loaded)
         .def("get_last_error", &VoskTranscriber::get_last_error);
     

@@ -89,12 +89,9 @@ class TranscriptionController(QObject):
             self.logger.info(f"Loading Vosk model from: {model_path}")
             self.transcriber = backend.VoskTranscriber(model_path, sample_rate)
             
-            if not self.transcriber.is_model_loaded():
-                error_msg = f"Failed to load Vosk model: {self.transcriber.get_last_error()}"
-                self.logger.error(error_msg)
-                self.transcription_error_signal.emit({"code": "MODEL_LOAD_ERROR", "message": error_msg})
-                return False
-                
+            # Start model loading progress monitoring
+            self._start_model_loading_progress_monitoring()
+            
             self.logger.info("Transcription controller initialized successfully")
             return True
             
@@ -103,6 +100,66 @@ class TranscriptionController(QObject):
             self.transcription_error_signal.emit({"code": "INIT_ERROR", "message": str(e)})
             return False
     
+    def _start_model_loading_progress_monitoring(self):
+        """Start a thread to monitor model loading progress"""
+        def monitor_progress():
+            try:
+                last_progress = 0.0
+                while self.transcriber.is_loading():
+                    # Get current progress
+                    progress = self.transcriber.get_loading_progress()
+                    
+                    # Only emit signal if progress has changed significantly
+                    if abs(progress - last_progress) >= 0.05:  # 5% change
+                        last_progress = progress
+                        # Emit status update signal
+                        self.transcription_error_signal.emit({
+                            "code": "MODEL_LOADING", 
+                            "message": f"Loading Vosk model... {int(progress * 100)}%"
+                        })
+                    
+                    time.sleep(0.2)  # Check progress every 200ms
+                
+                # Final check after loading completes
+                if self.transcriber.is_model_loaded():
+                    self.transcription_error_signal.emit({
+                        "code": "MODEL_LOADED", 
+                        "message": "Vosk model loaded successfully"
+                    })
+                else:
+                    error_msg = f"Failed to load Vosk model: {self.transcriber.get_last_error()}"
+                    self.logger.error(error_msg)
+                    self.transcription_error_signal.emit({
+                        "code": "MODEL_LOAD_ERROR", 
+                        "message": error_msg
+                    })
+            except Exception as e:
+                self.logger.error(f"Error in model loading progress monitoring: {str(e)}")
+        
+        # Start the monitoring thread
+        self.thread_pool.submit(monitor_progress)
+
+    def _on_transcription_error(self, error):
+        """Called when a transcription error occurs"""
+        self.logger.error(f"Transcription error: {error['code']} - {error['message']}")
+        
+        # Handle model loading progress updates
+        if error['code'] == "MODEL_LOADING":
+            # Update status bar with loading progress
+            self.status_bar.showMessage(error['message'])
+            return
+        elif error['code'] == "MODEL_LOADED":
+            # Update status bar with success message
+            self.status_bar.showMessage(error['message'], 3000)  # Show for 3 seconds
+            return
+        
+        # Handle other errors with dialog
+        QMessageBox.warning(
+            self, 
+            "Transcription Error", 
+            f"Transcription error: {error['message']}"
+        )
+
     def cleanup(self):
         """Clean up resources"""
         self.stop_transcription()

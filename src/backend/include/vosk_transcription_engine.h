@@ -8,6 +8,8 @@
 #include <memory>
 #include <vector>
 #include <mutex>
+#include <atomic>
+#include <future>
 
 namespace voice_transcription {
 
@@ -65,8 +67,12 @@ public:
     void reset();
     
     // Status and error reporting
-    bool is_model_loaded() const { return model_ != nullptr && recognizer_ != nullptr; }
+    bool is_model_loaded() const;
     std::string get_last_error() const { return last_error_; }
+    
+    // Background loading status
+    bool is_loading() const;
+    float get_loading_progress() const;
 
 private:
     // Parse json result to TranscriptionResult
@@ -74,6 +80,12 @@ private:
     
     // Extract text from JSON
     std::string extract_text_from_json(const std::string& json);
+    
+    // Create empty result
+    TranscriptionResult create_empty_result() const;
+    
+    // Background loading method
+    bool load_model_background();
 
     // Member variables
     VoskModel* model_;
@@ -82,6 +94,12 @@ private:
     std::string last_error_;
     std::mutex recognizer_mutex_;
     bool has_speech_started_;
+    
+    // Background loading members
+    std::atomic<bool> is_loading_;
+    std::atomic<float> loading_progress_;
+    std::future<bool> loading_future_;
+    std::string model_path_;
 };
 
 } // namespace voice_transcription

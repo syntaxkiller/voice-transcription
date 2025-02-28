@@ -12,6 +12,8 @@ A real-time voice-to-text transcription tool that works entirely offline for Win
 - **🔤 Dictation Commands:** Use commands like "period", "new line", "question mark" for punctuation and formatting
 - **✍️ Flexible Output:** Choose between simulated keypresses or clipboard output
 - **🪟 User-Friendly Interface:** Clean GUI with device selection and status indicators
+- **⚡ Background Model Loading:** Non-blocking model initialization with progress feedback
+- **💾 Robust Buffer Management:** Stable audio streaming with memory efficiency
 - **🛡️ Robust Error Handling:** Graceful recovery from issues like device disconnections
 
 ## Screenshots
@@ -46,6 +48,7 @@ A real-time voice-to-text transcription tool that works entirely offline for Win
 1. **Select your microphone** from the device dropdown
 2. **Set your preferred hotkey** using the "Change Shortcut" button (default is Ctrl+Shift+T)
 3. **Press your hotkey** or click "Start Transcription" to begin transcribing
+   - The first time you start, the speech model will load in the background (progress is shown in the status bar)
 4. **Speak naturally** and watch as your speech is converted to text in your active application
 5. **Press your hotkey again** to stop transcription
 
@@ -86,6 +89,12 @@ Use these spoken commands to add punctuation and formatting:
 - Verify that you're in a reasonably quiet environment
 - Try adjusting your microphone volume in Windows settings
 
+#### Long model loading time
+- The Vosk speech recognition model is loaded in the background
+- Loading progress is displayed in the status bar
+- First-time loading can take 10-30 seconds depending on your system
+- The application remains responsive during loading
+
 #### Text not appearing in applications
 - Make sure the target application has focus when transcribing
 - Try using clipboard output instead (in Options)
@@ -99,6 +108,7 @@ Use these spoken commands to add punctuation and formatting:
 | "Failed to load model" | Check that the Vosk model files are in the correct location |
 | "Failed to register hotkey" | Try a different keyboard shortcut |
 | "Output error" | Check if the target application is still active |
+| "Loading model..." | This is normal - wait for the model to load completely |
 
 ## System Requirements
 
@@ -166,6 +176,24 @@ For active development:
    python -m pdb src/gui/main_window.py
    ```
 
+## Architecture Overview
+
+The application uses a hybrid architecture:
+
+- **C++ Backend:** Handles performance-critical operations:
+  - Audio capture and streaming with PortAudio
+  - Voice activity detection with WebRTC VAD
+  - Speech recognition with Vosk (loaded in background)
+  - Keyboard simulation for text output
+  
+- **Python Frontend:** Provides the user interface:
+  - PyQt5 GUI components
+  - Configuration management
+  - User interaction handling
+  - Progress reporting and status display
+
+The C++ and Python components communicate via pybind11 bindings, allowing seamless integration while maintaining performance.
+
 ## Configuration
 
 The application can be configured by editing `src/config/settings.json`:
@@ -219,29 +247,29 @@ The application can be configured by editing `src/config/settings.json`:
 
 ### Current Development Stage
 
-The application is currently in active development with usable core functionality. The basic architecture is in place with a working Python GUI and C++ backend. Key components like audio capture, voice activity detection, transcription, and text output are functional.
+The application has stable core functionality with all major architectural components in place. Features like audio capture, voice activity detection, transcription, and text output are fully functional.
 
 **Working Features:**
 - Audio device enumeration and selection
 - Keyboard shortcut capture and registration
-- Voice activity detection
-- Basic speech recognition with Vosk
+- Voice activity detection 
+- Background speech recognition model loading with progress feedback
+- Robust audio streaming with proper buffer management
 - Text output via simulated keypresses or clipboard
 - Dictation commands for punctuation and formatting
 
 **Under Development:**
-- Improving transcription accuracy and latency
-- Enhancing the user interface
-- Adding more robust error handling
-- Implementing audio level visualization
-- Creating comprehensive user documentation
+- Enhancing the user interface with audio level visualization
+- Optimizing performance and reducing latency
+- Implementing comprehensive testing framework
+- Creating detailed user documentation
 
 ### Recent Progress
 
-- Fixed CMake configuration issues for proper target definition
-- Implemented robust error handling with recovery mechanisms
+- Implemented background model loading with progress reporting
+- Enhanced audio streaming with robust buffer management
+- Improved error handling with recovery mechanisms for audio issues
 - Added RapidJSON for better parsing of transcription results
-- Enhanced setup process with multiple fallback methods for dependencies
 
 ## Contributing
 
@@ -266,6 +294,9 @@ A: Yes, you can add custom commands by editing the `dictation_commands` section 
 
 **Q: Why does the application need a specific sample rate (16000 Hz)?**  
 A: The Vosk speech recognition model is trained on audio at 16000 Hz. Using a different sample rate would reduce accuracy.
+
+**Q: Why does the application take a moment to start transcribing the first time?**  
+A: The speech recognition model is loaded in the background to keep the UI responsive. This can take 10-30 seconds depending on your system. Progress is displayed in the status bar.
 
 **Q: Can I use this for real-time captioning or subtitles?**  
 A: While the application can output text in real-time, it isn't specifically designed for captioning or subtitles. However, you could use the clipboard output option to paste text into a captioning tool.
