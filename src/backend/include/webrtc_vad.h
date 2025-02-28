@@ -1,36 +1,65 @@
-#ifndef WEBRTC_VAD_H
-#define WEBRTC_VAD_H
+#ifndef VOICE_TRANSCRIPTION_WEBRTC_VAD_H
+#define VOICE_TRANSCRIPTION_WEBRTC_VAD_H
 
-#include <cstdint>
-#include <cstddef>
+#include <vector>
 
-// WebRTC VAD API declarations
-// This is a simplified version of the WebRTC VAD API for our mock implementation
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// Create a new VAD instance
-void* WebRtcVad_Create();
-
-// Initialize a VAD instance
-int WebRtcVad_Init(void* handle);
-
-// Free a VAD instance
-void WebRtcVad_Free(void* handle);
-
-// Set the aggressiveness mode
-// 0: Least aggressive, more false positives
-// 3: Most aggressive, more false negatives
-int WebRtcVad_set_mode(void* handle, int mode);
-
-// Process a frame to determine if it contains speech
-// Returns: 1 - speech detected, 0 - no speech, -1 - error
-int WebRtcVad_Process(void* handle, int fs, const int16_t* audio_frame, size_t frame_length);
-
-#ifdef __cplusplus
+// Forward declaration to avoid circular includes
+namespace voice_transcription {
+    class AudioChunk;  // Forward declaration
 }
-#endif
 
-#endif // WEBRTC_VAD_H
+namespace voice_transcription {
+
+/**
+ * Voice Activity Detection handler using WebRTC VAD implementation
+ * Detects whether audio chunks contain speech
+ */
+class VADHandler {
+public:
+    /**
+     * Constructs a VAD handler
+     * 
+     * @param sample_rate Sample rate of audio in Hz (typically 16000)
+     * @param frame_duration_ms Frame duration in milliseconds (10, 20, or 30)
+     * @param aggressiveness VAD aggressiveness (0-3, higher = fewer false positives)
+     */
+    VADHandler(int sample_rate, int frame_duration_ms, int aggressiveness);
+    
+    /**
+     * Destructor - cleans up VAD resources
+     */
+    ~VADHandler();
+
+    /**
+     * Process an audio chunk and determine if it contains speech
+     * 
+     * @param chunk Audio chunk to analyze
+     * @return true if speech is detected, false otherwise
+     */
+    bool is_speech(const AudioChunk& chunk);
+    
+    /**
+     * Adjust VAD aggressiveness level
+     * 
+     * @param aggressiveness New aggressiveness level (0-3)
+     */
+    void set_aggressiveness(int aggressiveness);
+    
+    /**
+     * Get current aggressiveness level
+     * 
+     * @return Current aggressiveness level (0-3)
+     */
+    int get_aggressiveness() const { return aggressiveness_; }
+
+private:
+    void* vad_handle_;           // WebRTC VAD handle
+    int sample_rate_;            // Audio sample rate
+    int frame_duration_ms_;      // Frame duration in ms
+    int aggressiveness_;         // VAD aggressiveness level
+    std::vector<int16_t> temp_buffer_; // Buffer for float to int16 conversion
+};
+
+} // namespace voice_transcription
+
+#endif // VOICE_TRANSCRIPTION_WEBRTC_VAD_H

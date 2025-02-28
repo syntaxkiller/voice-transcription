@@ -69,18 +69,13 @@ struct AudioCallbackContext {
     
     const size_t MAX_BUFFER_SIZE = 100 * 320;
     
+    // Just declare the constructor, don't define it
     AudioCallbackContext();
     
-    // Write data to the circular buffer
+    // Other method declarations...
     void write_data(const float* data, size_t length);
-    
-    // Read data from the circular buffer
     size_t read_data(float* output, size_t length);
-    
-    // Wait for data with timeout
     bool wait_for_data(size_t min_samples, int timeout_ms);
-    
-    // Clear buffer
     void clear();
 };
 

@@ -3,8 +3,10 @@
 #include <pybind11/functional.h>
 #include <pybind11/numpy.h>
 
-#include "audio_stream.h"
-#include "vosk_transcription_engine.h"
+// Include headers in the right order
+#include "audio_stream.h"        // Include this first
+#include "webrtc_vad.h"          // Then this to get full VADHandler definition
+#include "vosk_transcription_engine.h"  // Then this which uses VADHandler
 #include "keyboard_sim.h"
 #include "window_manager.h"
 
@@ -110,7 +112,7 @@ PYBIND11_MODULE(voice_transcription_backend, m) {
         .def("get_loading_progress", &VoskTranscriber::get_loading_progress)
         .def("is_model_loaded", &VoskTranscriber::is_model_loaded)
         .def("get_last_error", &VoskTranscriber::get_last_error);
-    
+            
     // Shortcut class
     py::class_<Shortcut>(m, "Shortcut")
         .def(py::init<>())

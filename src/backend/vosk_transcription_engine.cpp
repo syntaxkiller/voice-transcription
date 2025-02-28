@@ -1,13 +1,12 @@
 #include "vosk_transcription_engine.h"
+#include "webrtc_vad.h"  // Add this explicit include
 #include <chrono>
-#include <atomic>
-#include <future>
+#include <algorithm>
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
-
 namespace voice_transcription {
 
-// Class for simple noise filtering
+// Simple noise filter implementation
 class NoiseFilter {
 public:
     NoiseFilter(float threshold = 0.05f, int window_size = 10)
@@ -154,20 +153,6 @@ private:
     std::deque<float> noise_energy_history_;
 };
 
-// Add these new members to the VoskTranscriber class in vosk_transcription_engine.h
-/*
-private:
-    // Background loading members
-    std::atomic<bool> is_loading_;
-    std::atomic<float> loading_progress_;
-    std::future<bool> loading_future_;
-    std::string model_path_;
-    
-    // Background loading methods
-    bool load_model_background();
-    TranscriptionResult create_empty_result() const;
-*/
-
 // Improved constructor with background loading
 VoskTranscriber::VoskTranscriber(const std::string& model_path, float sample_rate)
     : model_(nullptr),
@@ -176,7 +161,8 @@ VoskTranscriber::VoskTranscriber(const std::string& model_path, float sample_rat
       has_speech_started_(false),
       is_loading_(true),
       loading_progress_(0.0f),
-      model_path_(model_path) {
+      model_path_(model_path),
+      use_noise_filtering_(false) {
     
     // Start loading the model in a background thread
     loading_future_ = std::async(std::launch::async, 
@@ -263,6 +249,129 @@ TranscriptionResult VoskTranscriber::create_empty_result() const {
     return result;
 }
 
+// Enhanced destructor with proper future handling
+VoskTranscriber::~VoskTranscriber() {
+    // Wait for background loading to complete before destroying
+    if (is_loading_.load() && loading_future_.valid()) {
+        try {
+            // Set a reasonable timeout (5 seconds)
+            auto status = loading_future_.wait_for(std::chrono::seconds(5));
+            if (status == std::future_status::timeout) {
+                // Loading is taking too long, we'll need to force quit
+                // This could lead to resource leaks, but we have to prevent hanging
+                return;
+            }
+            
+            // Get the result to prevent any exceptions from being thrown later
+            loading_future_.get();
+        } catch (...) {
+            // Ignore any exceptions during cleanup
+        }
+    }
+    
+    // Clean up resources
+    if (recognizer_) {
+        vosk_recognizer_free(recognizer_);
+        recognizer_ = nullptr;
+    }
+    
+    if (model_) {
+        vosk_model_free(model_);
+        model_ = nullptr;
+    }
+}
+
+// Move constructor and assignment operators
+VoskTranscriber::VoskTranscriber(VoskTranscriber&& other) noexcept
+    : model_(other.model_),
+      recognizer_(other.recognizer_),
+      sample_rate_(other.sample_rate_),
+      has_speech_started_(other.has_speech_started_),
+      noise_filter_(std::move(other.noise_filter_)),
+      use_noise_filtering_(other.use_noise_filtering_),
+      is_loading_(other.is_loading_.load()),
+      loading_progress_(other.loading_progress_.load()),
+      loading_future_(std::move(other.loading_future_)),
+      model_path_(std::move(other.model_path_)),
+      last_error_(std::move(other.last_error_)) {
+    
+    other.model_ = nullptr;
+    other.recognizer_ = nullptr;
+}
+
+VoskTranscriber& VoskTranscriber::operator=(VoskTranscriber&& other) noexcept {
+    if (this != &other) {
+        // Clean up existing resources
+        if (recognizer_) {
+            vosk_recognizer_free(recognizer_);
+        }
+        if (model_) {
+            vosk_model_free(model_);
+        }
+        
+        // Move resources from other
+        model_ = other.model_;
+        recognizer_ = other.recognizer_;
+        sample_rate_ = other.sample_rate_;
+        has_speech_started_ = other.has_speech_started_;
+        noise_filter_ = std::move(other.noise_filter_);
+        use_noise_filtering_ = other.use_noise_filtering_;
+        is_loading_ = other.is_loading_.load();
+        loading_progress_ = other.loading_progress_.load();
+        loading_future_ = std::move(other.loading_future_);
+        model_path_ = std::move(other.model_path_);
+        last_error_ = std::move(other.last_error_);
+        
+        // Clear other's resources
+        other.model_ = nullptr;
+        other.recognizer_ = nullptr;
+    }
+    return *this;
+}
+
+// Noise filtering methods
+void VoskTranscriber::enable_noise_filtering(bool enable) {
+    use_noise_filtering_ = enable;
+}
+
+bool VoskTranscriber::is_noise_filtering_enabled() const {
+    return use_noise_filtering_;
+}
+
+void VoskTranscriber::calibrate_noise_filter(const AudioChunk& silence_chunk) {
+    if (!noise_filter_) {
+        noise_filter_ = std::make_unique<NoiseFilter>(0.05f, 10);
+    }
+    noise_filter_->calibrate(silence_chunk);
+}
+
+TranscriptionResult VoskTranscriber::transcribe_with_noise_filtering(
+    std::unique_ptr<AudioChunk> chunk, bool is_speech) {
+    
+    // Initialize noise filter if needed
+    if (!noise_filter_ && use_noise_filtering_) {
+        noise_filter_ = std::make_unique<NoiseFilter>(0.05f, 10);
+    }
+    
+    // Make a copy of the chunk for noise filtering
+    auto filtered_chunk = std::make_unique<AudioChunk>(chunk->size());
+    std::memcpy(filtered_chunk->data(), chunk->data(), chunk->size() * sizeof(float));
+    
+    // Apply noise filtering if enabled
+    if (noise_filter_ && use_noise_filtering_) {
+        if (!is_speech) {
+            // Use silence to auto-calibrate the filter
+            noise_filter_->auto_calibrate(*filtered_chunk, false);
+        }
+        
+        // Apply the filter to the chunk
+        noise_filter_->filter(*filtered_chunk);
+    }
+    
+    // Use the filtered chunk for transcription
+    return transcribe_with_vad(std::move(filtered_chunk), is_speech);
+}
+
 // New method to check loading state and get progress
 float VoskTranscriber::get_loading_progress() const {
     return loading_progress_.load();
@@ -308,7 +417,7 @@ TranscriptionResult VoskTranscriber::transcribe(std::unique_ptr<AudioChunk> chun
     }
     
     try {
-        // Proceed with normal transcription as in the original code
+        // Proceed with normal transcription
         std::lock_guard<std::mutex> lock(recognizer_mutex_);
         
         // Convert float samples to int16 for Vosk
@@ -356,6 +465,51 @@ TranscriptionResult VoskTranscriber::transcribe(std::unique_ptr<AudioChunk> chun
     }
 }
 
+// Process a chunk with VAD checking
+TranscriptionResult VoskTranscriber::transcribe_with_vad(std::unique_ptr<AudioChunk> chunk, bool is_speech) {
+    if (is_speech) {
+        if (!has_speech_started_) {
+            // Speech just started, reset the recognizer to start a new utterance
+            if (recognizer_) {
+                vosk_recognizer_reset(recognizer_);
+            }
+            has_speech_started_ = true;
+        }
+        
+        // Process the chunk with speech
+        return transcribe(std::move(chunk));
+    } else {
+        if (has_speech_started_) {
+            // Speech just ended, get final result
+            has_speech_started_ = false;
+            
+            // Create a dummy result since there's no actual audio to process
+            TranscriptionResult result = create_empty_result();
+            
+            if (recognizer_) {
+                // Get final result from recognizer
+                std::string json_result = vosk_recognizer_final_result(recognizer_);
+                result = parse_result(json_result);
+                result.is_final = true;
+            }
+            
+            return result;
+        }
+        
+        // No speech and no active utterance, return empty result
+        return create_empty_result();
+    }
+}
+
+// Reset the recognizer
+void VoskTranscriber::reset() {
+    if (recognizer_) {
+        std::lock_guard<std::mutex> lock(recognizer_mutex_);
+        vosk_recognizer_reset(recognizer_);
+    }
+    has_speech_started_ = false;
+}
+
 // Modified is_model_loaded to work with background loading
 bool VoskTranscriber::is_model_loaded() const {
     // If we're still loading, check if it's done now
@@ -374,38 +528,6 @@ bool VoskTranscriber::is_model_loaded() const {
     
     // Standard check
     return model_ != nullptr && recognizer_ != nullptr;
-}
-
-// Enhanced destructor with proper future handling
-VoskTranscriber::~VoskTranscriber() {
-    // Wait for background loading to complete before destroying
-    if (is_loading_.load() && loading_future_.valid()) {
-        try {
-            // Set a reasonable timeout (5 seconds)
-            auto status = loading_future_.wait_for(std::chrono::seconds(5));
-            if (status == std::future_status::timeout) {
-                // Loading is taking too long, we'll need to force quit
-                // This could lead to resource leaks, but we have to prevent hanging
-                return;
-            }
-            
-            // Get the result to prevent any exceptions from being thrown later
-            loading_future_.get();
-        } catch (...) {
-            // Ignore any exceptions during cleanup
-        }
-    }
-    
-    // Clean up resources
-    if (recognizer_) {
-        vosk_recognizer_free(recognizer_);
-        recognizer_ = nullptr;
-    }
-    
-    if (model_) {
-        vosk_model_free(model_);
-        model_ = nullptr;
-    }
 }
 
 // Improved parse_result method with better error handling
@@ -468,6 +590,24 @@ TranscriptionResult VoskTranscriber::parse_result(const std::string& json_result
     }
     
     return result;
+}
+
+// Extract text from JSON result
+std::string VoskTranscriber::extract_text_from_json(const std::string& json) {
+    try {
+        rapidjson::Document doc;
+        doc.Parse(json.c_str());
+        
+        if (doc.HasMember("text") && doc["text"].IsString()) {
+            return doc["text"].GetString();
+        } else if (doc.HasMember("partial") && doc["partial"].IsString()) {
+            return doc["partial"].GetString();
+        }
+    } catch (...) {
+        // Ignore parsing errors and return empty string
+    }
+    
+    return "";
 }
 
 } // namespace voice_transcription

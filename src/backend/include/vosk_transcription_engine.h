@@ -2,7 +2,6 @@
 #define VOSK_TRANSCRIPTION_ENGINE_H
 
 #include "audio_stream.h"
-#include "webrtc_vad.h"
 #include <vosk_api.h>
 #include <string>
 #include <memory>
@@ -14,6 +13,10 @@
 
 namespace voice_transcription {
 
+// Forward declarations
+class NoiseFilter;
+class VADHandler;  // Forward declare, don't redefine
+
 // Transcription result structure
 struct TranscriptionResult {
     std::string raw_text;         // Raw text from the transcription engine
@@ -23,82 +26,11 @@ struct TranscriptionResult {
     int64_t timestamp_ms;         // Timestamp of when the transcription was generated
 };
 
-class NoiseFilter;
-
-void VoskTranscriber::calibrate_noise_filter(const AudioChunk& silence_chunk) {
-    if (!noise_filter_) {
-        noise_filter_ = std::make_unique<NoiseFilter>(0.05f, 10);
-    }
-    noise_filter_->calibrate(silence_chunk);
-}
-
-TranscriptionResult VoskTranscriber::transcribe_with_noise_filtering(
-    std::unique_ptr<AudioChunk> chunk, bool is_speech) {
-    
-    // Initialize noise filter if needed
-    if (!noise_filter_ && use_noise_filtering_) {
-        noise_filter_ = std::make_unique<NoiseFilter>(0.05f, 10);
-    }
-    
-    // Make a copy of the chunk for noise filtering
-    auto filtered_chunk = std::make_unique<AudioChunk>(chunk->size());
-    std::memcpy(filtered_chunk->data(), chunk->data(), chunk->size() * sizeof(float));
-    
-    // Apply noise filtering if enabled
-    if (noise_filter_ && use_noise_filtering_) {
-        if (!is_speech) {
-            // Use silence to auto-calibrate the filter
-            noise_filter_->auto_calibrate(*filtered_chunk, false);
-        }
-        
-        // Apply the filter to the chunk
-        noise_filter_->filter(*filtered_chunk);
-    }
-    
-    // Use the filtered chunk for transcription
-    return transcribe_with_vad(std::move(filtered_chunk), is_speech);
-}
-
-// Voice activity detection (VAD) handler
-class VADHandler {
-public:
-    VADHandler(int sample_rate, int frame_duration_ms, int aggressiveness);
-    ~VADHandler();
-
-    // Process an audio chunk and determine if it contains speech
-    bool is_speech(const AudioChunk& chunk);
-    
-    // Adjust VAD parameters
-    void set_aggressiveness(int aggressiveness);
-    int get_aggressiveness() const { return aggressiveness_; }
-
-private:
-    void* vad_handle_;  // WebRTC VAD handle
-    int sample_rate_;
-    int frame_duration_ms_;
-    int aggressiveness_;
-    std::vector<int16_t> temp_buffer_; // For float to int16 conversion
-};
-
 // Vosk transcription engine
 class VoskTranscriber {
 public:
     VoskTranscriber(const std::string& model_path, float sample_rate);
     ~VoskTranscriber();
-
-    void enable_noise_filtering(bool enable);
-    bool is_noise_filtering_enabled() const;
-    void calibrate_noise_filter(const AudioChunk& silence_chunk);
-    TranscriptionResult transcribe_with_noise_filtering(
-        std::unique_ptr<AudioChunk> chunk, bool is_speech);
-
-    void VoskTranscriber::enable_noise_filtering(bool enable) {
-        use_noise_filtering_ = enable;
-    }
-
-    bool VoskTranscriber::is_noise_filtering_enabled() const {
-        return use_noise_filtering_;
-    }
 
     // No copy operations
     VoskTranscriber(const VoskTranscriber&) = delete;
@@ -107,6 +39,13 @@ public:
     // Move operations
     VoskTranscriber(VoskTranscriber&&) noexcept;
     VoskTranscriber& operator=(VoskTranscriber&&) noexcept;
+
+    // Noise filtering methods
+    void enable_noise_filtering(bool enable);
+    bool is_noise_filtering_enabled() const;
+    void calibrate_noise_filter(const AudioChunk& silence_chunk);
+    TranscriptionResult transcribe_with_noise_filtering(
+        std::unique_ptr<AudioChunk> chunk, bool is_speech);
 
     // Process an audio chunk and return transcription
     TranscriptionResult transcribe(std::unique_ptr<AudioChunk> chunk);
@@ -124,8 +63,6 @@ public:
     // Background loading status
     bool is_loading() const;
     float get_loading_progress() const;
-
-}
 
 private:
     // Noise filtering
