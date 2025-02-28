@@ -50,7 +50,13 @@ void AudioCallbackContext::write_data(const float* data, size_t length) {
     std::lock_guard<std::mutex> lock(buffer_mutex);
     
     // Check for buffer overflow
-    size_t available_space = MAX_BUFFER_SIZE - ((buffer_pos - read_pos) % MAX_BUFFER_SIZE);
+    // Calculate available data first
+    size_t data_available = (buffer_pos >= read_pos) ? 
+        (buffer_pos - read_pos) : 
+        (MAX_BUFFER_SIZE - read_pos + buffer_pos);
+        
+    // Then calculate available space
+    size_t available_space = MAX_BUFFER_SIZE - data_available;
     if (length > available_space) {
         buffer_overflow = true;
         

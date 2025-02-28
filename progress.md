@@ -205,3 +205,23 @@ None of the previous blockers remain. The application now has a stable foundatio
    - Optional usage statistics
    - Performance benchmarking
    - Transcription quality metrics
+
+## Implementation Details to Verify
+
+The following implementation details should be verified during integration and testing:
+
+### Performance and Stability
+- ⚠️ Memory ownership in `transcribe_with_noise_filtering` - Ensure the audio chunk copying doesn't lead to unnecessary allocations in performance-critical paths
+- ⚠️ Circular buffer calculation - Verify the buffer overflow handling works correctly when `buffer_pos < read_pos`
+- ⚠️ Thread safety of `ErrorRecoveryManager` - Ensure all callbacks and signal emissions from background threads are thread-safe
+
+### Resource Management
+- ⚠️ AudioLevelMonitor reference safety - Ensure that when audio streams are destroyed, the monitor is properly stopped to prevent accessing invalid memory
+- ⚠️ Proper cleanup of resources on application exit - Verify all threads are properly joined and resources released
+
+### User Interface
+- ⚠️ Audio level meter layout scaling - Ensure the UI doesn't break on different screen sizes and DPI settings
+- ⚠️ Add minimum/maximum size constraints for components to ensure consistent visual appearance
+
+### Build Configuration
+- ⚠️ CMake compile definition placement - Ensure `target_compile_definitions(voice_transcription_backend PRIVATE HAS_CONDITION_VARIABLE=1)` is placed after target definition but before linking commands
