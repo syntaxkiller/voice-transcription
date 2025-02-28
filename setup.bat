@@ -451,6 +451,13 @@ set "MISSING_ESSENTIAL=0"
 
 :: Try installing all dependencies first
 echo Installing all dependencies from requirements.txt...
+cd "%BUILD_DIR%"
+echo Current directory: %CD%
+if exist requirements.txt (
+    echo requirements.txt found
+) else (
+    echo requirements.txt NOT found
+)
 python -m pip install -r requirements.txt
 if %ERRORLEVEL% NEQ 0 (
     echo WARNING: Failed to install all Python dependencies.
@@ -467,7 +474,36 @@ if %ERRORLEVEL% NEQ 0 (
             echo Successfully installed %%p
         )
     )
+
+set "REQUIREMENTS_FILE=%BUILD_DIR%requirements.txt"
+
+:: Verify requirements file exists
+if not exist "%REQUIREMENTS_FILE%" (
+    echo ERROR: Could not find requirements.txt at: %REQUIREMENTS_FILE%
+    echo Please ensure the file exists in the project root directory.
+    echo Current directory: %CD%
+    goto SETUP_FAILED
+)
+
+:: Try installing all dependencies first
+echo Installing all dependencies from requirements.txt...
+python -m pip install -r "%REQUIREMENTS_FILE%"
+if %ERRORLEVEL% NEQ 0 (
+    echo WARNING: Failed to install all Python dependencies.
+    echo Trying to install essential packages individually...
     
+    :: Install essential packages one by one
+    for %%p in (%ESSENTIAL_PACKAGES%) do (
+        echo Installing essential package: %%p
+        python -m pip install %%p
+        if %ERRORLEVEL% NEQ 0 (
+            echo ERROR: Failed to install essential package %%p
+            set "MISSING_ESSENTIAL=1"
+        ) else (
+            echo Successfully installed %%p
+        )
+    )    
+
     :: Attempt to install optional packages
     echo.
     echo Attempting to install optional packages...
