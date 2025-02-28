@@ -25,14 +25,6 @@ struct TranscriptionResult {
 
 class NoiseFilter;
 
-void VoskTranscriber::enable_noise_filtering(bool enable) {
-    use_noise_filtering_ = enable;
-}
-
-bool VoskTranscriber::is_noise_filtering_enabled() const {
-    return use_noise_filtering_;
-}
-
 void VoskTranscriber::calibrate_noise_filter(const AudioChunk& silence_chunk) {
     if (!noise_filter_) {
         noise_filter_ = std::make_unique<NoiseFilter>(0.05f, 10);
@@ -100,6 +92,14 @@ public:
     TranscriptionResult transcribe_with_noise_filtering(
         std::unique_ptr<AudioChunk> chunk, bool is_speech);
 
+    void VoskTranscriber::enable_noise_filtering(bool enable) {
+        use_noise_filtering_ = enable;
+    }
+
+    bool VoskTranscriber::is_noise_filtering_enabled() const {
+        return use_noise_filtering_;
+    }
+
     // No copy operations
     VoskTranscriber(const VoskTranscriber&) = delete;
     VoskTranscriber& operator=(const VoskTranscriber&) = delete;
@@ -125,8 +125,6 @@ public:
     bool is_loading() const;
     float get_loading_progress() const;
 
-    void VoskTranscriber::enable_noise_filtering(bool enable) {
-    use_noise_filtering_ = enable;
 }
 
 private:

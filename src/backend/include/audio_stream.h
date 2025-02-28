@@ -61,16 +61,15 @@ struct AudioCallbackContext {
     int frames_per_buffer = 0;
     std::vector<float> buffer;
     size_t buffer_pos = 0;
-    size_t read_pos = 0;  // Track read position separately for ring buffer
+    size_t read_pos = 0;
     std::mutex buffer_mutex;
     std::condition_variable data_ready_cv;
     bool is_paused = false;
     bool buffer_overflow = false;
     
-    // Circular buffer size - ~2 seconds at 16KHz
-    const size_t MAX_BUFFER_SIZE = 100 * 320;  
+    const size_t MAX_BUFFER_SIZE = 100 * 320;
     
-    AudioCallbackContext() : buffer(MAX_BUFFER_SIZE, 0.0f) {}
+    AudioCallbackContext();
     
     // Write data to the circular buffer
     void write_data(const float* data, size_t length);

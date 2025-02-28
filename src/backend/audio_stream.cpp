@@ -35,14 +35,10 @@ AudioChunk& AudioChunk::operator=(AudioChunk&& other) noexcept {
     return *this;
 }
 
-// AudioCallbackContext Constructor
+// Use direct construction for buffer (more efficient)
 AudioCallbackContext::AudioCallbackContext() 
-    : frames_per_buffer(0), 
-      buffer_pos(0), 
-      read_pos(0), 
-      is_paused(false), 
-      buffer_overflow(false) {
-    buffer.resize(MAX_BUFFER_SIZE, 0.0f);
+    : buffer(MAX_BUFFER_SIZE, 0.0f) {
+    // The in-class initializers handle other members
 }
 
 // Write data to the circular buffer
