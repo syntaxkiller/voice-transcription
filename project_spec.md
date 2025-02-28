@@ -116,20 +116,35 @@ Development focuses on direct integration with real libraries and APIs for immed
   - `get_last_error() -> str` - Gets last error message
   - `get_next_chunk() -> Optional[AudioChunk]` - Gets next audio chunk with timeout handling and buffer management
 - **Error Handling:** Implements layered fallback strategies with specific error codes/messages.
-- **Buffer Management:** 
-  - Efficient circular buffer implementation for audio data
-  - Automatic buffer size limits to prevent memory growth
-  - Thread-safe buffer operations with mutex protection
-  - Intelligent buffer overflow handling to maintain streaming quality
+- #### Buffer Management
+- **Circular Buffer Implementation:**
+  - Efficient ring buffer design with separate read/write pointers
+  - Fixed-size allocation to prevent memory growth
+  - Thread-safe operations using mutexes and condition variables
+  - Automatic overflow handling to maintain streaming quality
+- **Thread Synchronization:**
+  - Condition variables for efficient wait operations
+  - Mutex protection for shared buffer access
+  - Non-blocking reads with timeout capabilities
+- **Memory Protection:** 
+  - Limits buffer size to prevent memory growth during long sessions
+  - Implements proper overflow handling to maintain audio quality
+  - Provides proper resource cleanup on stream termination
+- **Latency Optimization:**
+  - Buffer priming during startup
+  - Efficient ring buffer reduces copy operations
+  - Direct notification of waiting threads when data is available
 
 #### Voice Activity Detection (VAD)
-- **Implementation:** Uses WebRTC VAD with configurable aggressiveness (default is 2).
+- **Implementation:** Uses advanced spectral analysis with energy thresholding.
   - **C++ Class:** `VADHandler` with:
-    - `is_speech(chunk: AudioChunk) -> bool` - Determines if chunk contains speech
-    - `set_aggressiveness(level: int) -> void` - Sets VAD sensitivity
+    - `is_speech(chunk: AudioChunk) -> bool` - Determines if chunk contains speech using spectral analysis
+    - `set_aggressiveness(level: int) -> void` - Sets VAD sensitivity (0-3)
     - `get_aggressiveness() -> int` - Gets current VAD sensitivity
 - **Audio Chunking:** Processes audio in 20ms chunks (320 samples at 16000 Hz) using the `AudioChunker` class.
 - **Hangover Timer:** Continues processing briefly after silence (default 300ms) using the `SilenceDetector` class.
+- **Spectral Analysis:** Computes spectral flatness to distinguish speech from noise.
+- **Adaptable Thresholding:** Automatically adjusts detection threshold based on background noise levels.
 
 #### Speech Recognition
 - **Engine:** Uses the Vosk API for speech recognition.
@@ -153,11 +168,45 @@ Development focuses on direct integration with real libraries and APIs for immed
 - **Model Loading:** Handled in a background thread via `std::async` with non-blocking progress reporting.
 - **JSON Processing:** Uses RapidJSON for parsing Vosk output with proper error handling.
 
+#### Audio Level Visualization
+- **GUI Component:** Real-time audio level meter showing input strength.
+  - **Python Class:** `AudioLevelMeter` that inherits from `QWidget`.
+  - **Visualization:** Gradient coloring from green (low) to red (high) with peak indicators.
+- **Features:**
+  - Peak level detection with configurable hold time
+  - Gradual peak decay for better visualization
+  - Color-coded levels with intuitive threshold indicators
+  - Both vertical and horizontal orientation support
+- **Audio Processing:**
+  - RMS (Root Mean Square) amplitude calculation
+  - Logarithmic (dB) scale conversion for better dynamic range
+  - Moving average for smooth visual transitions
+- **Integration:**
+  - Direct connection to the audio stream for real-time updates
+  - `AudioLevelMonitor` class to bridge backend and UI
+  - Automatic updates synchronized with transcription state
+
+#### Noise Filtering
+- **Implementation:** Background noise estimation and filtering.
+  - **C++ Class:** `NoiseFilter` with:
+    - `filter(chunk: AudioChunk) -> void` - Apply noise filtering to audio chunk
+    - `calibrate(chunk: AudioChunk) -> void` - Calibrate with a silence sample
+    - `auto_calibrate(chunk: AudioChunk, is_speech: bool) -> void` - Automatically update noise floor
+- **Features:**
+  - Adaptive noise floor estimation during silence periods
+  - Soft noise gate for natural-sounding results
+  - Spectral subtraction for improved speech clarity
+  - Automatic calibration based on ambient conditions
+- **Integration:**
+  - Optional enabling/disabling via configuration
+  - Seamless integration with the transcription pipeline
+  - Minimal CPU overhead with optimized implementation
+
 ---
 
-### 4. Text Output
+## 4. Text Output
 
-#### Simulated Keypress Output
+### Simulated Keypress Output
 - **Method:** Simulate keypresses via Windows `SendInputW` API.
   - **C++ Function:** `simulate_keypresses(text: std::wstring, delay_ms: int = 20) -> bool` (exposed to Python)
 - **Details:**
@@ -167,48 +216,127 @@ Development focuses on direct integration with real libraries and APIs for immed
 - **Rate Limiting:** Limits output to 100 characters per second using the `OutputRateLimiter` class.
 - **Batching:** Groups keypresses into batches (every 20–50ms) for performance via the `KeypressBatcher` class.
 
-#### Clipboard Output
+### Clipboard Output
 - **Alternative Method:** Option to copy text to the clipboard instead of simulating keypresses.
   - Controlled by the `clipboard_output` setting (default is false).
 - **Managed by:** the `ClipboardManager` class with methods:
   - `set_clipboard_text(text: std::wstring) -> bool`
   - `get_clipboard_text() -> std::wstring`
 
-#### Focus Management
+### Focus Management
 - **User Guidance:** Advises users to keep the target application focused.
 - **Warning:** Displays a warning if focus changes during transcription.
 - **Special Key Handling:** Supports keys like `{ENTER}` and `{TAB}` by mapping to virtual key codes using the `SpecialKeyHandler` class.
 
 ---
 
-### 5. Dictation Commands
+## 5. Dictation Commands
 
 #### Command Set
-- **Supported Commands:**
-  - `"period"` → Inserts `.`
-  - `"comma"` → Inserts `,`
-  - `"question mark"` → Inserts `?`
-  - `"exclamation point"` → Inserts `!`
-  - `"new line"` → Inserts `{ENTER}` (simulated Enter key)
-  - `"new paragraph"` → Inserts `{ENTER}{ENTER}`
-  - `"space"` → Inserts a single space `" "`
-  - `"control enter"` → Simulates `{CTRL+ENTER}`
-  - `"all caps"` → Toggles Caps Lock on via `{CAPSLOCK}`
-  - `"caps lock"` → Toggles Caps Lock off via `{CAPSLOCK}`
+- **Core Commands:**
+  - Punctuation: `"period"` (`.`), `"comma"` (`,`), `"question mark"` (`?`), etc.
+  - Formatting: `"new line"` (`{ENTER}`), `"new paragraph"` (`{ENTER}{ENTER}`), etc.
+  - Special keys: `"control enter"` (`{CTRL+ENTER}`), `"tab key"` (`{TAB}`), etc.
+  - Capitalization: `"all caps"` (enables caps mode), `"no caps"` (disables caps mode)
+  - Symbols: `"open parenthesis"` (`(`), `"quote"` (`"`), `"hyphen"` (`-`), etc.
 
+- **Command Aliases:** Multiple ways to trigger the same action
+  - Example: `"period"`, `"full stop"`, and `"dot"` all produce `.`
+  - Example: `"exclamation point"` and `"exclamation mark"` both produce `!`
+  
 #### Command Processor
-- **Module:** `command_processor.py`
-- **Implementation:** The `CommandProcessor` class with methods:
-  - `process(text: str) -> str`
-  - `add_command(phrase: str, action: str) -> bool`
-  - `remove_command(phrase: str) -> bool`
-  - `get_commands() -> List[Dict]`
-- **Functionality:** Uses regular expressions for mapping command phrases to actions, with compiled patterns for efficiency and context-aware recognition.
-- **Execution:** Commands are processed and replaced in the transcribed text before being sent to the output method.
+- **Module:** `enhanced_command_processor.py`
+- **Implementation:** The `EnhancedCommandProcessor` class with methods:
+  - `process(text: str) -> str` - Basic command processing
+  - `process_with_context(text: str, context: Dict) -> str` - Context-aware processing
+  - `add_command(phrase: str, action: str, aliases: List[str]) -> bool` - Add command with aliases
+  - `remove_command(phrase: str) -> bool` - Remove a command
+  - `get_commands() -> List[Dict]` - Get all commands with aliases
+  - `set_capitalization_mode(mode: str) -> bool` - Set capitalization mode
+  - `set_smart_punctuation(enabled: bool) -> bool` - Enable/disable smart punctuation
 
----
+#### Context-Aware Features
+- **Application Detection:**
+  - Identifies the current foreground application
+  - Applies application-specific formatting rules
+  - Customizes command behavior based on context
+  
+- **Smart Capitalization:**
+  - Automatically capitalizes first letter of sentences
+  - Handles proper formatting after punctuation
+  - Supports ALL CAPS mode for emphasis
+  
+- **Smart Punctuation:**
+  - Ensures proper spacing around punctuation marks
+  - Fixes common punctuation mistakes
+  - Applies typographic improvements (em dashes, smart quotes) in word processors
+  
+- **Domain-Specific Processing:**
+  - Code-friendly formatting for programming editors 
+  - Document-optimized formatting for word processors
+  - Support for specialized terminology in different domains
 
-## 6. Performance and Optimization
+## 6. Error Recovery System
+
+#### Error Management Framework
+- **Categories:**
+  - **Audio Device Errors:** (device disconnection, initialization failure) — Error codes 1000–1999
+  - **Transcription Errors:** (model loading failure, recognition errors) — Error codes 2000–2999
+  - **Shortcut Capture Errors:** (invalid shortcut, registration failure) — Error codes 3000–3999
+  - **Output Errors:** (keypresses failure, clipboard errors) — Error codes 4000–4999
+  - **Setup Errors:** (dependency installation issues, build failures) — Error codes 5000–5999
+  - **Configuration Errors:** (settings.json corruption) — Error codes 6000–6999
+
+- **Severity Levels:**
+  - **INFO:** Informational messages, not errors (model loading progress)
+  - **WARNING:** Non-critical issues that don't interrupt operation
+  - **ERROR:** Significant errors affecting functionality that may be recoverable
+  - **CRITICAL:** Severe errors preventing application operation
+
+- **Logging & Reporting:**
+  - Detailed logs with timestamps, severity, category, and context
+  - User-friendly messages with recovery steps
+  - Progress reporting for background operations
+  
+#### Recovery Strategies
+- **Audio Device Recovery:**
+  - Automatic switching to default device when disconnected
+  - Retry with different buffer sizes on stream failures
+  - Graceful handling of device enumeration changes
+  
+- **Transcription Recovery:**
+  - Alternative model loading paths for model failures
+  - Transcriber reset and reinitialize on errors
+  - Graceful degradation with partial functionality
+  
+- **Output Recovery:**
+  - Automatic switching between keypress and clipboard methods
+  - Retry with rate limiting for failed output
+  - Graceful fallback to simpler output methods
+  
+- **Recovery Implementation:**
+  - Strategy pattern with specialized recovery handlers
+  - Multiple recovery attempts with increasing delays
+  - Configurable maximum attempts and timeouts
+  - Background recovery for non-critical errors
+
+#### User Experience Integration
+- **Error Notifications:**
+  - Severity-appropriate notification methods (status bar vs. dialog)
+  - Clear explanations of what happened and why
+  - Recovery feedback on automatic fixes
+  
+- **Recovery Steps:**
+  - Actionable guidance for manual recovery
+  - Contextual help based on error types
+  - Links to detailed documentation for complex issues
+  
+- **Configurability:**
+  - User-adjustable automatic recovery options
+  - Maximum recovery attempts configuration
+  - Notification verbosity settings
+
+## 7. Performance and Optimization
 
 #### Multi-threading & Asynchronous Processing
 - **Architecture:** Separate threads for audio capture, VAD, transcription, and output processing.
@@ -236,9 +364,9 @@ Development focuses on direct integration with real libraries and APIs for immed
 - **Memory Pooling:** Uses a memory pool for audio chunks to reduce allocation overhead.
 - **Buffer Management:** Uses PortAudio and internal buffers with mutexes for thread safety, with proper cleanup on shutdown.
 
----
 
-## 7. User Experience & Error Handling
+
+## 8. User Experience & Error Handling
 
 #### Error Management
 
@@ -271,9 +399,35 @@ Development focuses on direct integration with real libraries and APIs for immed
 - **Dependency Failures:** Setup process includes multiple fallback options for acquiring and installing dependencies.
 - **Configuration Recovery:** Attempts to restore corrupted configuration from backups or defaults.
 
+#### Performance Optimizations
+
+- **Audio Buffer Management:**
+  - Circular buffer implementation for zero-copy reading
+  - Condition variables for efficient thread waiting
+  - Proper overflow protection with oldest-first discard policy
+  - Memory usage limits to prevent growth during long sessions
+  
+- **Thread Synchronization:**
+  - Fine-grained locking for minimal contention
+  - Wait-notify pattern for buffer operations
+  - Non-blocking reads with timeouts for responsiveness
+  - Background processing for CPU-intensive operations
+  
+- **Noise Filtering:**
+  - Adaptive filtering based on detected noise levels
+  - Low-overhead spectral analysis
+  - Minimal processing during silence periods
+  - In-place filtering to reduce memory allocation
+  
+- **Memory Management:**
+  - Optimized buffer sizes based on empirical testing
+  - Proper cleanup of resources during shutdown
+  - Buffer reuse when possible to reduce allocations
+  - Smart pointer usage for automatic resource management
+
 ---
 
-### 8. Build Process
+### 9. Build Process
 
 #### Prerequisites
 - **Visual Studio:** 2019 or 2022 with C++ workload  
@@ -320,7 +474,7 @@ Development focuses on direct integration with real libraries and APIs for immed
 
 ---
 
-### 9. Settings File (`settings.json`)
+### 10. Settings File (`settings.json`)
 
 ```json
 {
@@ -330,7 +484,8 @@ Development focuses on direct integration with real libraries and APIs for immed
     "hangover_timeout_ms": 300,
     "sample_rate": 16000,
     "frames_per_buffer": 320,
-    "noise_threshold": 0.05
+    "noise_threshold": 0.05,
+    "use_noise_filtering": true
   },
   "transcription": {
     "engine": "vosk",
@@ -344,24 +499,55 @@ Development focuses on direct integration with real libraries and APIs for immed
   },
   "ui": {
     "pause_on_active_window_change": false,
-    "confirmation_feedback": true
+    "confirmation_feedback": true,
+    "level_meter": {
+      "peak_hold_time_ms": 1000,
+      "show_peak_indicator": true
+    }
   },
   "output": {
     "method": "simulated_keypresses",
     "clipboard_output": false
   },
+  "error_handling": {
+    "auto_recovery": true,
+    "max_recovery_attempts": 3,
+    "recovery_delay_ms": 500
+  },
   "dictation_commands": {
+    "capitalization_mode": "auto",
+    "smart_punctuation": true,
     "supported_commands": [
-      { "phrase": "period", "action": "." },
-      { "phrase": "comma",  "action": "," },
+      { "phrase": "period", "action": ".", "aliases": ["full stop", "dot"] },
+      { "phrase": "comma", "action": "," },
       { "phrase": "question mark", "action": "?" },
-      { "phrase": "exclamation point", "action": "!" },
+      { "phrase": "exclamation point", "action": "!", "aliases": ["exclamation mark"] },
       { "phrase": "new line", "action": "{ENTER}" },
       { "phrase": "new paragraph", "action": "{ENTER}{ENTER}" },
       { "phrase": "space", "action": " " },
       { "phrase": "control enter", "action": "{CTRL+ENTER}" },
-      { "phrase": "all caps", "action": "{CAPSLOCK}" },
-      { "phrase": "caps lock", "action": "{CAPSLOCK}" }
+      { "phrase": "all caps", "action": "{ALLCAPS_ON}" },
+      { "phrase": "no caps", "action": "{ALLCAPS_OFF}" },
+      { "phrase": "caps on", "action": "{CAPSLOCK}" },
+      { "phrase": "caps off", "action": "{CAPSLOCK}" },
+      { "phrase": "open parenthesis", "action": "(", "aliases": ["left parenthesis"] },
+      { "phrase": "close parenthesis", "action": ")", "aliases": ["right parenthesis"] },
+      { "phrase": "open bracket", "action": "[", "aliases": ["left bracket"] },
+      { "phrase": "close bracket", "action": "]", "aliases": ["right bracket"] },
+      { "phrase": "open brace", "action": "{", "aliases": ["left brace"] },
+      { "phrase": "close brace", "action": "}", "aliases": ["right brace"] },
+      { "phrase": "quote", "action": "\"", "aliases": ["double quote"] },
+      { "phrase": "single quote", "action": "'" },
+      { "phrase": "backslash", "action": "\\" },
+      { "phrase": "forward slash", "action": "/", "aliases": ["slash"] },
+      { "phrase": "delete", "action": "{DELETE}" },
+      { "phrase": "backspace", "action": "{BACKSPACE}" },
+      { "phrase": "underscore", "action": "_" },
+      { "phrase": "hyphen", "action": "-", "aliases": ["dash"] },
+      { "phrase": "plus", "action": "+", "aliases": ["plus sign"] },
+      { "phrase": "equals", "action": "=", "aliases": ["equal sign"] },
+      { "phrase": "at sign", "action": "@", "aliases": ["at"] },
+      { "phrase": "hash", "action": "#", "aliases": ["pound", "number sign"] }
     ]
   }
 }
@@ -369,7 +555,7 @@ Development focuses on direct integration with real libraries and APIs for immed
 
 ---
 
-### 10. File Structure
+### 11. File Structure
 ```
 /voice-transcription/
 ├── src/
@@ -438,7 +624,7 @@ Development focuses on direct integration with real libraries and APIs for immed
 
 ---
 
-### 11. Implementation Notes
+### 12. Implementation Notes
 
 #### Development Philosophy
 - **Robust Error Handling:** Implement thorough error recovery systems with multi-layered fallback strategies.

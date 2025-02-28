@@ -2,19 +2,21 @@
 
 A real-time voice-to-text transcription tool that works entirely offline for Windows, focusing on privacy, low-latency, and reliability.
 
-![Status: Active Development](https://img.shields.io/badge/Status-Active%20Development-blue)
+![Status: Beta Release](https://img.shields.io/badge/Status-Beta%20Release-green)
 
 ## Key Features
 
 - **🔒 Complete Privacy:** Works entirely offline with no cloud dependencies
 - **⌨️ Keyboard Shortcut Toggle:** Start/stop transcription with a customizable hotkey (default: Ctrl+Shift+T)
-- **🗣️ Smart Speech Detection:** Automatically detects when you're speaking using Voice Activity Detection
-- **🔤 Dictation Commands:** Use commands like "period", "new line", "question mark" for punctuation and formatting
+- **🗣️ Smart Speech Detection:** Advanced voice activity detection with spectral analysis
+- **🎙️ Audio Level Visualization:** Real-time feedback on audio input levels
+- **🧹 Noise Filtering:** Background noise reduction for improved transcription accuracy
+- **🔤 Enhanced Dictation Commands:** Context-aware command processing with smart punctuation
 - **✍️ Flexible Output:** Choose between simulated keypresses or clipboard output
 - **🪟 User-Friendly Interface:** Clean GUI with device selection and status indicators
 - **⚡ Background Model Loading:** Non-blocking model initialization with progress feedback
-- **💾 Robust Buffer Management:** Stable audio streaming with memory efficiency
-- **🛡️ Robust Error Handling:** Graceful recovery from issues like device disconnections
+- **💾 Optimized Audio Pipeline:** Low-latency circular buffer with efficient thread synchronization
+- **🛡️ Robust Error Recovery:** Automatic recovery from device disconnections and other issues
 
 ## Screenshots
 
@@ -52,22 +54,45 @@ A real-time voice-to-text transcription tool that works entirely offline for Win
 4. **Speak naturally** and watch as your speech is converted to text in your active application
 5. **Press your hotkey again** to stop transcription
 
-### Dictation Commands
+### Enhanced Features
+
+#### Noise Filtering
+- Enable noise filtering in the options panel to improve transcription quality
+- The filter automatically adapts to your environment's background noise levels
+- Particularly useful in noisy environments
+
+#### Audio Visualization
+- Monitor your audio input levels in real-time with the audio level meter
+- Green-to-red gradient shows input strength with peak level indicators
+- Helps ensure your microphone is working correctly
+
+#### Context-Aware Commands
+- Commands are now context-sensitive based on the active application
+- Special formatting is applied for code editors vs. word processors
+- Smart punctuation and capitalization improves readability
+
+#### Advanced Dictation Commands
 
 Use these spoken commands to add punctuation and formatting:
 
 | Say this... | To get this... |
 |-------------|----------------|
-| "period" | . |
+| "period" (or "full stop", "dot") | . |
 | "comma" | , |
 | "question mark" | ? |
-| "exclamation point" | ! |
+| "exclamation point" (or "exclamation mark") | ! |
 | "new line" | (Enter key) |
 | "new paragraph" | (Double Enter) |
 | "space" | (Space) |
 | "control enter" | (Ctrl+Enter) |
-| "all caps" | (Caps Lock on) |
-| "caps lock" | (Caps Lock off) |
+| "all caps" | (Enables ALL CAPS mode) |
+| "no caps" | (Disables ALL CAPS mode) |
+| "open parenthesis" | ( |
+| "close parenthesis" | ) |
+| "quote" | " |
+| "single quote" | ' |
+| "hyphen" (or "dash") | - |
+| "underscore" | _ |
 
 ## Troubleshooting
 
@@ -88,6 +113,7 @@ Use these spoken commands to add punctuation and formatting:
 - Check that your microphone is not being used by another application
 - Verify that you're in a reasonably quiet environment
 - Try adjusting your microphone volume in Windows settings
+- Check the audio level meter to confirm your voice is being detected
 
 #### Long model loading time
 - The Vosk speech recognition model is loaded in the background
@@ -100,15 +126,19 @@ Use these spoken commands to add punctuation and formatting:
 - Try using clipboard output instead (in Options)
 - Some applications may block simulated keypresses for security reasons
 
-### Error Messages
+### Error Recovery
 
-| Error | Solution |
-|-------|----------|
-| "Audio device disconnected" | Reconnect your microphone or select a different one |
-| "Failed to load model" | Check that the Vosk model files are in the correct location |
-| "Failed to register hotkey" | Try a different keyboard shortcut |
-| "Output error" | Check if the target application is still active |
-| "Loading model..." | This is normal - wait for the model to load completely |
+The application now includes an automatic error recovery system for:
+- Audio device disconnections (automatically switches to an available device)
+- Stream start failures (attempts different buffer sizes)
+- Output errors (switches between keypress and clipboard methods)
+- Transcription engine errors (resets and retries)
+
+If you encounter persistent errors:
+1. Check the logs in the `logs` directory
+2. Restart the application
+3. Try changing audio devices or output methods
+4. If problems persist, please report the issue with your log files
 
 ## System Requirements
 
@@ -156,41 +186,23 @@ For a full build from source:
    python src/gui/main_window.py
    ```
 
-### Development Build
-
-For active development:
-
-1. **Configure with CMake in Debug mode:**
-   ```
-   cd build
-   cmake .. -DCMAKE_BUILD_TYPE=Debug
-   ```
-
-2. **Build the project:**
-   ```
-   cmake --build . --config Debug
-   ```
-
-3. **Run with the Python debugger:**
-   ```
-   python -m pdb src/gui/main_window.py
-   ```
-
 ## Architecture Overview
 
 The application uses a hybrid architecture:
 
 - **C++ Backend:** Handles performance-critical operations:
-  - Audio capture and streaming with PortAudio
-  - Voice activity detection with WebRTC VAD
+  - Audio capture and streaming with optimized circular buffer
+  - Advanced voice activity detection with spectral analysis
+  - Noise filtering for improved transcription accuracy
   - Speech recognition with Vosk (loaded in background)
   - Keyboard simulation for text output
   
 - **Python Frontend:** Provides the user interface:
-  - PyQt5 GUI components
+  - PyQt5 GUI components including audio level visualization
+  - Enhanced command processor with context awareness
+  - Comprehensive error recovery system
   - Configuration management
   - User interaction handling
-  - Progress reporting and status display
 
 The C++ and Python components communicate via pybind11 bindings, allowing seamless integration while maintaining performance.
 
@@ -206,7 +218,8 @@ The application can be configured by editing `src/config/settings.json`:
     "hangover_timeout_ms": 300,
     "sample_rate": 16000,
     "frames_per_buffer": 320,
-    "noise_threshold": 0.05
+    "noise_threshold": 0.05,
+    "use_noise_filtering": true
   },
   "transcription": {
     "engine": "vosk",
@@ -226,18 +239,28 @@ The application can be configured by editing `src/config/settings.json`:
     "method": "simulated_keypresses",
     "clipboard_output": false
   },
+  "error_handling": {
+    "auto_recovery": true,
+    "max_recovery_attempts": 3
+  },
   "dictation_commands": {
+    "capitalization_mode": "auto",
+    "smart_punctuation": true,
     "supported_commands": [
-      { "phrase": "period", "action": "." },
+      { "phrase": "period", "action": ".", "aliases": ["full stop", "dot"] },
       { "phrase": "comma", "action": "," },
       { "phrase": "question mark", "action": "?" },
-      { "phrase": "exclamation point", "action": "!" },
+      { "phrase": "exclamation point", "action": "!", "aliases": ["exclamation mark"] },
       { "phrase": "new line", "action": "{ENTER}" },
       { "phrase": "new paragraph", "action": "{ENTER}{ENTER}" },
       { "phrase": "space", "action": " " },
       { "phrase": "control enter", "action": "{CTRL+ENTER}" },
-      { "phrase": "all caps", "action": "{CAPSLOCK}" },
-      { "phrase": "caps lock", "action": "{CAPSLOCK}" }
+      { "phrase": "all caps", "action": "{ALLCAPS_ON}" },
+      { "phrase": "no caps", "action": "{ALLCAPS_OFF}" },
+      { "phrase": "open parenthesis", "action": "(", "aliases": ["left parenthesis"] },
+      { "phrase": "close parenthesis", "action": ")", "aliases": ["right parenthesis"] },
+      { "phrase": "quote", "action": "\"", "aliases": ["double quote"] },
+      { "phrase": "single quote", "action": "'" }
     ]
   }
 }
@@ -247,29 +270,34 @@ The application can be configured by editing `src/config/settings.json`:
 
 ### Current Development Stage
 
-The application has stable core functionality with all major architectural components in place. Features like audio capture, voice activity detection, transcription, and text output are fully functional.
+The application is now in beta status with significant improvements to stability, performance, and user experience.
 
 **Working Features:**
 - Audio device enumeration and selection
+- Advanced voice activity detection with spectral analysis
+- Optimized audio buffer management with circular buffer
+- Real-time audio level visualization
+- Background noise filtering
+- Context-aware dictation commands with smart punctuation
 - Keyboard shortcut capture and registration
-- Voice activity detection 
 - Background speech recognition model loading with progress feedback
-- Robust audio streaming with proper buffer management
+- Robust error recovery system with automatic fallbacks
 - Text output via simulated keypresses or clipboard
-- Dictation commands for punctuation and formatting
 
 **Under Development:**
-- Enhancing the user interface with audio level visualization
-- Optimizing performance and reducing latency
-- Implementing comprehensive testing framework
-- Creating detailed user documentation
+- Support for additional languages
+- Custom language model training
+- Specialized vocabulary for different domains (medical, legal, etc.)
+- Automatic updates mechanism
 
-### Recent Progress
+### Recent Improvements
 
-- Implemented background model loading with progress reporting
-- Enhanced audio streaming with robust buffer management
-- Improved error handling with recovery mechanisms for audio issues
-- Added RapidJSON for better parsing of transcription results
+- Implemented optimized circular buffer for audio streams with improved latency
+- Added real-time audio level visualization for better user feedback
+- Developed advanced voice activity detection using spectral analysis
+- Implemented background noise filtering for better transcription accuracy
+- Created a context-aware command processor with smart punctuation
+- Built comprehensive error recovery system with automatic fallbacks
 
 ## Contributing
 
@@ -281,26 +309,6 @@ Contributions are welcome! Here's how you can help:
 
 Please see [CONTRIBUTING.md](CONTRIBUTING.md) for more details on the contribution process.
 
-## Frequently Asked Questions
-
-**Q: Does this application send any data to the cloud?**  
-A: No, everything works completely offline. Your speech data never leaves your computer.
-
-**Q: What languages are supported?**  
-A: Currently only English is supported, as we're using the English Vosk model.
-
-**Q: Can I add custom dictation commands?**  
-A: Yes, you can add custom commands by editing the `dictation_commands` section in the `settings.json` file.
-
-**Q: Why does the application need a specific sample rate (16000 Hz)?**  
-A: The Vosk speech recognition model is trained on audio at 16000 Hz. Using a different sample rate would reduce accuracy.
-
-**Q: Why does the application take a moment to start transcribing the first time?**  
-A: The speech recognition model is loaded in the background to keep the UI responsive. This can take 10-30 seconds depending on your system. Progress is displayed in the status bar.
-
-**Q: Can I use this for real-time captioning or subtitles?**  
-A: While the application can output text in real-time, it isn't specifically designed for captioning or subtitles. However, you could use the clipboard output option to paste text into a captioning tool.
-
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
@@ -309,7 +317,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - [Vosk](https://alphacephei.com/vosk/) for the offline speech recognition engine
 - [PortAudio](http://www.portaudio.com/) for the audio I/O library
-- [WebRTC VAD](https://github.com/wiseman/py-webrtcvad) for voice activity detection
 - [PyQt](https://riverbankcomputing.com/software/pyqt/) for the GUI framework
 - [pybind11](https://github.com/pybind/pybind11) for C++/Python binding
+- [NumPy](https://numpy.org/) for audio processing calculations
 - [RapidJSON](https://rapidjson.org/) for JSON parsing
