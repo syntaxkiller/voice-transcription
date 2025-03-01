@@ -1,5 +1,7 @@
 # Voice Transcription Application
 
+## 🚧Application is incomplete: under active development🚧
+
 A real-time voice-to-text transcription tool that works entirely offline for Windows, focusing on privacy, low-latency, and reliability.
 
 ![Status: Beta Release](https://img.shields.io/badge/Status-Beta%20Release-green)
